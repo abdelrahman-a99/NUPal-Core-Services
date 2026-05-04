@@ -14,9 +14,17 @@ namespace Nupal.Core.Infrastructure.Repositories
             _col = db.GetCollection<ChatMessage>("chat_messages");
             try
             {
-                var idx = new CreateIndexModel<ChatMessage>(
-                    Builders<ChatMessage>.IndexKeys.Ascending(x => x.ConversationId).Descending(x => x.CreatedAt));
-                _col.Indexes.CreateOne(idx);
+                var indexes = new[]
+                {
+                    new CreateIndexModel<ChatMessage>(
+                        Builders<ChatMessage>.IndexKeys.Ascending(x => x.ConversationId).Descending(x => x.CreatedAt)),
+                    new CreateIndexModel<ChatMessage>(
+                        Builders<ChatMessage>.IndexKeys.Ascending(x => x.AgentTraceId)),
+                    new CreateIndexModel<ChatMessage>(
+                        Builders<ChatMessage>.IndexKeys.Ascending(x => x.AgentRoute).Descending(x => x.CreatedAt))
+                };
+
+                _col.Indexes.CreateMany(indexes);
             }
             catch (Exception ex)
             {

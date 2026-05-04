@@ -24,7 +24,8 @@ namespace Nupal.Core.Infrastructure.Services
         {
             var options = new JsonSerializerOptions
             {
-                PropertyNamingPolicy = null
+                PropertyNamingPolicy = null,
+                PropertyNameCaseInsensitive = true
             };
 
             var resp = await _httpClient.PostAsJsonAsync($"{_baseUrl.TrimEnd('/')}/route", request, options, ct);

@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Nupal.Domain.Entities;
 using NUPAL.Core.Application.DTOs;
 using NUPAL.Core.Application.Interfaces;
@@ -25,6 +26,124 @@ namespace NUPAL.Core.Application.Services
             _studentRepo = studentRepo;
             _rlRepo = rlRepo;
             _agent = agent;
+        }
+
+        private static readonly JsonSerializerOptions MetadataJsonOptions = new(JsonSerializerDefaults.Web)
+        {
+            DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
+        };
+
+        private static JsonElement? GetRouterElement(AgentRouteResponseDto agentResp)
+        {
+            if (!agentResp.Router.HasValue || agentResp.Router.Value.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined)
+            {
+                return null;
+            }
+
+            return agentResp.Router.Value;
+        }
+
+        private static double? ExtractRouterConfidence(AgentRouteResponseDto agentResp)
+        {
+            var router = GetRouterElement(agentResp);
+            if (!router.HasValue || router.Value.ValueKind != JsonValueKind.Object)
+            {
+                return null;
+            }
+
+            if (router.Value.TryGetProperty("confidence", out var confidenceProp) && confidenceProp.TryGetDouble(out var confidence))
+            {
+                return confidence;
+            }
+
+            return null;
+        }
+
+        private static string? ExtractRouterString(AgentRouteResponseDto agentResp, string propertyName)
+        {
+            var router = GetRouterElement(agentResp);
+            if (!router.HasValue || router.Value.ValueKind != JsonValueKind.Object)
+            {
+                return null;
+            }
+
+            if (router.Value.TryGetProperty(propertyName, out var prop) && prop.ValueKind == JsonValueKind.String)
+            {
+                return prop.GetString();
+            }
+
+            return null;
+        }
+
+        private static string ResolveUserKind(AgentRouteResponseDto agentResp, IReadOnlyCollection<string> replyKinds)
+        {
+            if (!string.IsNullOrWhiteSpace(agentResp.UserKind))
+            {
+                return agentResp.UserKind.Trim();
+            }
+
+            if (!string.IsNullOrWhiteSpace(agentResp.Route))
+            {
+                return agentResp.Route switch
+                {
+                    "mixed_rag_rl" => "mixed",
+                    "rl_only" => "rl",
+                    "general_chat" => "general",
+                    "unsupported" => "unsupported",
+                    _ => "rag"
+                };
+            }
+
+            if (replyKinds.Count == 1)
+            {
+                return replyKinds.First();
+            }
+
+            if (replyKinds.Count > 1)
+            {
+                return "mixed";
+            }
+
+            return agentResp.Intent == "recommendation" ? "rl" : agentResp.Intent == "mixed" ? "mixed" : "rag";
+        }
+
+        private static Dictionary<string, object?> BuildAgentMetadata(AgentRouteResponseDto agentResp)
+        {
+            var metadata = new Dictionary<string, object?>
+            {
+                ["source"] = "agent_deploy",
+                ["trace_id"] = agentResp.TraceId,
+                ["intent"] = agentResp.Intent,
+                ["route"] = string.IsNullOrWhiteSpace(agentResp.Route) ? null : agentResp.Route,
+                ["user_kind"] = string.IsNullOrWhiteSpace(agentResp.UserKind) ? null : agentResp.UserKind,
+                ["status"] = string.IsNullOrWhiteSpace(agentResp.Status) ? null : agentResp.Status,
+                ["route_confidence"] = ExtractRouterConfidence(agentResp),
+                ["route_reason"] = ExtractRouterString(agentResp, "reason")
+            };
+
+            var router = GetRouterElement(agentResp);
+            if (router.HasValue)
+            {
+                metadata["router"] = router.Value;
+            }
+
+            return metadata;
+        }
+
+        private static string? SerializeUserMetadata(AgentRouteResponseDto agentResp)
+        {
+            return JsonSerializer.Serialize(BuildAgentMetadata(agentResp), MetadataJsonOptions);
+        }
+
+        private static string? SerializeAssistantMetadata(AgentRouteResponseDto agentResp, object? resultMetadata)
+        {
+            var metadata = new Dictionary<string, object?>
+            {
+                ["agent"] = BuildAgentMetadata(agentResp),
+                ["result"] = resultMetadata
+            };
+
+            return JsonSerializer.Serialize(metadata, MetadataJsonOptions);
         }
 
         public async Task<ChatSendResponseDto> SendAsync(string studentId, ChatSendRequestDto request, CancellationToken ct = default)
@@ -126,14 +245,18 @@ namespace NUPAL.Core.Application.Services
 
             var agentResp = await _agent.RouteAsync(agentReq, ct);
 
-            // 6) Persist the user message with the resolved kind
-            var replyKinds = agentResp.Results.Select(r => r.Kind).Distinct().ToList();
-            var userKind = replyKinds.Count switch
-            {
-                0 => agentResp.Intent == "recommendation" ? "rl" : "rag",
-                1 => replyKinds[0],
-                _ => "mixed"
-            };
+            // 6) Persist the user message with the resolved kind and route metadata.
+            // Prefer the new agent route/user_kind fields, but fall back to legacy intent/reply kinds
+            // so older agent deployments still work during a rolling deploy.
+            var replyKinds = agentResp.Results
+                .Select(r => r.Kind)
+                .Where(k => !string.IsNullOrWhiteSpace(k))
+                .Distinct()
+                .ToList();
+            var userKind = ResolveUserKind(agentResp, replyKinds);
+            var routeConfidence = ExtractRouterConfidence(agentResp);
+            var routeReason = ExtractRouterString(agentResp, "reason");
+            var userMetadataJson = SerializeUserMetadata(agentResp);
 
             await _msgRepo.CreateAsync(new ChatMessage
             {
@@ -142,31 +265,51 @@ namespace NUPAL.Core.Application.Services
                 Role = "user",
                 Kind = userKind,
                 Content = request.Message.Trim(),
+                MetadataJson = userMetadataJson,
+                AgentTraceId = agentResp.TraceId,
+                AgentIntent = agentResp.Intent,
+                AgentRoute = string.IsNullOrWhiteSpace(agentResp.Route) ? null : agentResp.Route,
+                AgentUserKind = string.IsNullOrWhiteSpace(agentResp.UserKind) ? userKind : agentResp.UserKind,
+                AgentStatus = agentResp.Status,
+                RouteConfidence = routeConfidence,
+                RouteReason = routeReason,
                 CreatedAt = DateTime.UtcNow
             });
 
-            // 7) Persist assistant replies
+            Console.WriteLine($"[ChatService] Agent route: TraceId={agentResp.TraceId ?? "n/a"}, Route={agentResp.Route ?? "n/a"}, Intent={agentResp.Intent}, Status={agentResp.Status}, Confidence={routeConfidence?.ToString("0.###") ?? "n/a"}");
+
+            // 7) Persist assistant replies with both result-level metadata and the shared route metadata.
             var replies = new List<ChatReplyDto>();
             foreach (var r in agentResp.Results)
             {
-                var metadataJson = r.Metadata == null ? null : JsonSerializer.Serialize(r.Metadata);
+                var metadataJson = SerializeAssistantMetadata(agentResp, r.Metadata);
 
                 await _msgRepo.CreateAsync(new ChatMessage
                 {
                     ConversationId = convoId,
                     StudentId = studentId,
                     Role = "assistant",
-                    Kind = r.Kind,
+                    Kind = string.IsNullOrWhiteSpace(r.Kind) ? userKind : r.Kind,
                     Content = r.Answer,
                     MetadataJson = metadataJson,
+                    AgentTraceId = agentResp.TraceId,
+                    AgentIntent = agentResp.Intent,
+                    AgentRoute = string.IsNullOrWhiteSpace(agentResp.Route) ? null : agentResp.Route,
+                    AgentUserKind = string.IsNullOrWhiteSpace(agentResp.UserKind) ? userKind : agentResp.UserKind,
+                    AgentStatus = agentResp.Status,
+                    RouteConfidence = routeConfidence,
+                    RouteReason = routeReason,
                     CreatedAt = DateTime.UtcNow
                 });
 
                 replies.Add(new ChatReplyDto
                 {
-                    Kind = r.Kind,
+                    Kind = string.IsNullOrWhiteSpace(r.Kind) ? userKind : r.Kind,
                     Content = r.Answer,
-                    MetadataJson = metadataJson
+                    MetadataJson = metadataJson,
+                    AgentTraceId = agentResp.TraceId,
+                    AgentRoute = string.IsNullOrWhiteSpace(agentResp.Route) ? null : agentResp.Route,
+                    AgentStatus = agentResp.Status
                 });
             }
 
@@ -246,7 +389,14 @@ namespace NUPAL.Core.Application.Services
             {
                 Id = m.Id.ToString(),
                 Role = m.Role,
+                Kind = m.Kind,
                 Content = m.Content,
+                MetadataJson = m.MetadataJson,
+                AgentTraceId = m.AgentTraceId,
+                AgentRoute = m.AgentRoute,
+                AgentStatus = m.AgentStatus,
+                RouteConfidence = m.RouteConfidence,
+                RouteReason = m.RouteReason,
                 CreatedAt = m.CreatedAt
             }).ToList();
         }

@@ -1,3 +1,4 @@
+using System.Text.Json;
 using System.Text.Json.Serialization;
 using Nupal.Domain.Entities;
 
@@ -53,8 +54,25 @@ namespace NUPAL.Core.Application.DTOs
 
     public class AgentRouteResponseDto
     {
+        // Legacy field kept for backward compatibility with older agent/backend versions.
+        // New code should prefer Route/UserKind/Status below.
         [JsonPropertyName("intent")]
-        public string Intent { get; set; } = "faq"; // faq/recommendation/mixed
+        public string Intent { get; set; } = "faq"; // legacy: faq/recommendation/mixed
+
+        [JsonPropertyName("route")]
+        public string Route { get; set; } = string.Empty; // rag_only/rl_only/mixed_rag_rl/general_chat/unsupported
+
+        [JsonPropertyName("user_kind")]
+        public string UserKind { get; set; } = string.Empty; // rag/rl/mixed/general/unsupported
+
+        [JsonPropertyName("status")]
+        public string Status { get; set; } = "ok"; // ok/partial/degraded/clarification_needed/unsupported
+
+        [JsonPropertyName("trace_id")]
+        public string? TraceId { get; set; }
+
+        [JsonPropertyName("router")]
+        public JsonElement? Router { get; set; }
 
         [JsonPropertyName("results")]
         public List<AgentResultDto> Results { get; set; } = new();
