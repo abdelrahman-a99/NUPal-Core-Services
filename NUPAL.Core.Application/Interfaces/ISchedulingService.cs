@@ -19,5 +19,8 @@ namespace NUPAL.Core.Application.Interfaces
         Task<int> SeedBlocksAsync(IEnumerable<RawBlockDto> blocks);
         Task<string> GetActiveSemesterAsync();
         Task InvalidateCacheAsync();
+        Task RegisterScheduleAsync(RegistrationRequestDto request);
+        Task<Nupal.Domain.Entities.Registration?> GetRegistrationByStudentIdAsync(string studentId);
+        Task<Nupal.Domain.Entities.Registration?> GetLatestRegistrationByStudentIdAsync(string studentId);
     }
 }
