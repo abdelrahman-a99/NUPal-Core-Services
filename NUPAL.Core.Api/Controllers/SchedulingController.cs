@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using NUPAL.Core.Application.DTOs;
 using NUPAL.Core.Application.Interfaces;
+using System.Security.Claims;
 
 namespace NUPAL.Core.Api.Controllers
 {
@@ -170,6 +171,61 @@ namespace NUPAL.Core.Api.Controllers
             {
                 _logger.LogError(ex, "Error seeding scheduling blocks");
                 return StatusCode(500, new { message = "Error seeding blocks" });
+            }
+        }
+
+        [HttpPost("register")]
+        [Authorize]
+        public async Task<IActionResult> Register([FromBody] RegistrationRequestDto request)
+        {
+            try
+            {
+                if (request == null) return BadRequest(new { message = "Request body is required" });
+                await _schedulingService.RegisterScheduleAsync(request);
+                return Ok(new { message = "Schedule registration submitted successfully" });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error registering schedule");
+                return StatusCode(500, new { message = ex.Message });
+            }
+        }
+
+        [HttpGet("my-registration")]
+        [Authorize]
+        public async Task<IActionResult> GetMyRegistration()
+        {
+            try
+            {
+                var studentId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+                if (string.IsNullOrEmpty(studentId)) return Unauthorized();
+                
+                var reg = await _schedulingService.GetRegistrationByStudentIdAsync(studentId);
+                return Ok(reg);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error fetching student registration");
+                return StatusCode(500, new { message = "Error fetching registration" });
+            }
+        }
+
+        [HttpGet("latest-registration")]
+        [Authorize]
+        public async Task<IActionResult> GetLatestRegistration()
+        {
+            try
+            {
+                var studentId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+                if (string.IsNullOrEmpty(studentId)) return Unauthorized();
+                
+                var reg = await _schedulingService.GetLatestRegistrationByStudentIdAsync(studentId);
+                return Ok(reg);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error fetching latest student registration");
+                return StatusCode(500, new { message = "Error fetching latest registration" });
             }
         }
     }

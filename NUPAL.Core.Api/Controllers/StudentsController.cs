@@ -129,7 +129,8 @@ namespace NUPAL.Core.API.Controllers
 
                     if (mapping != null)
                     {
-                        return mapping.CourseCode;
+                        var name = mapping.CourseNames?.FirstOrDefault() ?? mapping.CourseCode;
+                        return name;
                     }
 
                     return c; // fallback: return raw code as-is

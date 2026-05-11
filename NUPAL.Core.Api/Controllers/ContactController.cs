@@ -37,5 +37,12 @@ namespace NUPAL.Core.Api.Controllers
 
             return Ok(new { message = "Message received successfully" });
         }
+
+        [HttpGet]
+        public async Task<IActionResult> GetAll()
+        {
+            var messages = await _contactRepository.GetAllAsync();
+            return Ok(messages);
+        }
     }
 }

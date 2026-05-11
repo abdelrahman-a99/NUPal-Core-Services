@@ -138,11 +138,12 @@ namespace NUPAL.Core.Infrastructure.Services.Scheduling
             double[] weightVec,
             BlockVocab vocab,
             SchedulePreferencesDto prefs,
-            bool matchCoursesOnly = false)
+            bool matchCoursesOnly = false,
+            int originalDesiredCount = 0)
         {
             var bvec = VectoriseBlock(f, vocab);
             var sim  = WeightedCosine(prefVec, bvec, weightVec);
-            var cov  = Coverage(desiredCourses, f);
+            var cov  = Coverage(desiredCourses, f, originalDesiredCount);
             var comp = matchCoursesOnly ? 1.0 : Compactness(f);
             var dayB = matchCoursesOnly ? 1.0 : (prefs.DayMode == "count"
                 ? DayCountScore(f, prefs.NumPreferredDays)
@@ -206,10 +207,11 @@ namespace NUPAL.Core.Infrastructure.Services.Scheduling
                             nB  += sv[i] * sv[i];
                         }
                         double d = Math.Sqrt(nA) * Math.Sqrt(nB);
-                        if (d <= 0 || dot / d < DiversityThreshold) return false;
+                        if (d <= 0 || dot / d < 0.98) return false; // Increased threshold to 0.98
 
-                        // Geometrically similar — suppress only when coverage is NOT better
-                        return c.Coverage <= selected[selIdx].Coverage;
+                        // Only suppress if it's literally the same content AND same coverage
+                        // But allow different BlockIds to coexist
+                        return c.BlockId == selected[selIdx].BlockId || c.Coverage < selected[selIdx].Coverage;
                     })
                     .Any(suppress => suppress);
 
@@ -280,34 +282,42 @@ namespace NUPAL.Core.Infrastructure.Services.Scheduling
         }
 
 
-        private static double Coverage(IEnumerable<string> desiredCourses, BlockFeatures f)
+        private static double Coverage(IEnumerable<string> desiredCourses, BlockFeatures f, int originalDesiredCount)
         {
+            if (originalDesiredCount <= 0) return 0.0;
+
             var desired = desiredCourses
                 .Where(c => !string.IsNullOrWhiteSpace(c))
                 .Select(c => new string(c.ToLower().Where(char.IsLetterOrDigit).ToArray()))
+                .Distinct()
                 .ToList();
                 
-            if (desired.Count == 0) return 0.0;
-            
+            // 1. Primary Match: Match by normalized codes
+            int matchedByCode = f.NormalizedCourseCodes.Count(code => 
+                desired.Contains(new string(code.ToLower().Where(char.IsLetterOrDigit).ToArray()))
+            );
+
+            // 2. Fallback Match: Match by raw course names (for courses without mappings)
             var fCoursesSanitized = f.Courses
                 .Select(c => new string(c.ToLower().Where(char.IsLetterOrDigit).ToArray()))
                 .ToList();
 
-            var fCodesSanitized = f.NormalizedCourseCodes
-                .Select(c => new string(c.ToLower().Where(char.IsLetterOrDigit).ToArray()))
-                .ToList();
-
-            int matched = 0;
-            Console.WriteLine($"[DEBUG-MATCH] [Block: {f.BlockId}] Courses available: " + string.Join(", ", fCoursesSanitized) + " | Codes: " + string.Join(", ", fCodesSanitized));
-            foreach (var d in desired)
+            int matchedByName = 0;
+            foreach (var bc in fCoursesSanitized)
             {
-                bool hit = fCoursesSanitized.Any(c => c.Contains(d) || d.Contains(c)) ||
-                           fCodesSanitized.Any(c => c.Contains(d) || d.Contains(c));
-                Console.WriteLine($"[DEBUG-MATCH] [Block: {f.BlockId}] Comparing desired: '{d}'. Hit: {hit}");
-                if (hit) matched++;
+                if (desired.Any(d => bc.Contains(d) || d.Contains(bc)))
+                {
+                    matchedByName++;
+                }
             }
-            Console.WriteLine($"[DEBUG-MATCH] Total desired: {desired.Count}, matched: {matched}");
-            return (double)matched / desired.Count;
+
+            // Use the best result
+            int finalMatched = Math.Max(matchedByCode, matchedByName);
+            
+            // Cap at original count to avoid > 100% scores due to alias overlapping
+            finalMatched = Math.Min(finalMatched, originalDesiredCount);
+
+            return (double)finalMatched / originalDesiredCount;
         }
 
         private static double Compactness(BlockFeatures f)
@@ -321,7 +331,7 @@ namespace NUPAL.Core.Infrastructure.Services.Scheduling
                 int unique = slots.Distinct().Count();
                 totalIdle += span - unique;
             }
-            return 1.0 / (1 + totalIdle);
+            return 1.0 / (1 + 0.1 * totalIdle); // Softened from 1.0
         }
 
 
@@ -343,7 +353,7 @@ namespace NUPAL.Core.Infrastructure.Services.Scheduling
 
         private static double DayCountScore(BlockFeatures f, int? numPreferred) =>
             numPreferred.HasValue
-                ? 1.0 / (1 + Math.Abs(f.NumDays - numPreferred.Value))
+                ? Math.Pow(0.9, Math.Abs(f.NumDays - numPreferred.Value)) // Gradual penalty (90% per day diff)
                 : 1.0;
     }
 }

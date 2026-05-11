@@ -32,5 +32,9 @@ namespace NUPAL.Core.Application.Interfaces
         Task UpdateBlockAsync(string blockId, string? semester, BlockDto dto);
         Task DeleteBlockAsync(string blockId, string? semester);
         Task<BlockDto> ParseSchedulePdfAsync(Stream pdfStream);
+
+        // Registrations
+        Task<List<Registration>> GetAllRegistrationsAsync();
+        Task ApproveRegistrationAsync(string registrationId, ApproveRegistrationDto dto);
     }
 }

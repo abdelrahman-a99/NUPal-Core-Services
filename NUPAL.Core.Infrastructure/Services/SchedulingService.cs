@@ -120,9 +120,21 @@ namespace NUPAL.Core.Infrastructure.Services
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToList();
 
+            var originalDesiredCount = distinctDesiredCodes.Count;
+            var expandedDesired = new List<string>(distinctDesiredCodes);
+            foreach (var code in distinctDesiredCodes)
+            {
+                var mapping = _mappingsCache.FirstOrDefault(m => (m.CourseCode ?? "").Equals(code, StringComparison.OrdinalIgnoreCase));
+                if (mapping != null)
+                {
+                    expandedDesired.AddRange(mapping.GetAllNames());
+                }
+            }
+            var distinctExpandedDesired = expandedDesired.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+
             var allFeatures = levelBlocks.Select(b => SchedulingBlockMapper.ExtractFeatures(b, _mappingsCache)).ToList();
             var vocab = SchedulingRecommender.BuildVocab(allFeatures);
-            var (pv, wv) = SchedulingRecommender.VectorisePrefs(prefs, distinctDesiredCodes, vocab, request.MatchCoursesOnly);
+            var (pv, wv) = SchedulingRecommender.VectorisePrefs(prefs, distinctExpandedDesired, vocab, request.MatchCoursesOnly);
             var scored = new List<Scheduling.Models.ScoredBlock>();
 
             for (int i = 0; i < levelBlocks.Count; i++)
@@ -131,7 +143,7 @@ namespace NUPAL.Core.Infrastructure.Services
                 if (!SchedulingRecommender.PassesHardConstraints(f, prefs, request.MatchCoursesOnly)) continue;
 
                 scored.Add(SchedulingRecommender.ScoreBlock(
-                    levelBlocks[i], f, distinctDesiredCodes, pv, wv, vocab, prefs, request.MatchCoursesOnly));
+                    levelBlocks[i], f, distinctExpandedDesired, pv, wv, vocab, prefs, request.MatchCoursesOnly, originalDesiredCount));
             }
 
             scored = [.. scored.OrderByDescending(s => s.FinalScore)];
@@ -263,6 +275,69 @@ namespace NUPAL.Core.Infrastructure.Services
             await _cacheLock.WaitAsync();
             try { _cache.Clear(); _cacheLoaded = false; }
             finally { _cacheLock.Release(); }
+        }
+
+        public async Task RegisterScheduleAsync(RegistrationRequestDto request)
+        {
+            using var scope = _scopeFactory.CreateScope();
+            var regRepo = scope.ServiceProvider.GetRequiredService<IRegistrationRepository>();
+
+            // Check if student already has a pending or approved registration
+            // For simplicity, we check all registrations. In a real app, we'd filter by semester.
+            var existing = await regRepo.GetAllAsync();
+            var alreadyRegistered = existing.Any(r => 
+                r.StudentId == request.StudentId && 
+                (r.Status == "Pending" || r.Status == "Approved"));
+
+            if (alreadyRegistered)
+            {
+                throw new InvalidOperationException("You already have a pending or approved registration.");
+            }
+
+            var registration = new Registration
+            {
+                StudentId = request.StudentId,
+                StudentName = request.StudentName,
+                StudentEmail = request.StudentEmail,
+                SelectedBlock = request.SelectedBlock,
+                Status = "Pending",
+                RegisteredAt = DateTime.UtcNow,
+                IsFromRecommendation = request.IsFromRecommendation,
+                IsFromRl = request.IsFromRl,
+                IsModified = request.IsModified
+            };
+
+            await regRepo.CreateAsync(registration);
+        }
+
+        public async Task<Registration?> GetRegistrationByStudentIdAsync(string studentId)
+        {
+            using var scope = _scopeFactory.CreateScope();
+            var regRepo = scope.ServiceProvider.GetRequiredService<IRegistrationRepository>();
+
+            var all = await regRepo.GetAllAsync();
+
+            // Only surface an active (Pending or Approved) registration.
+            // Rejected registrations should not block the student from re-submitting,
+            // and should not show stale schedule data on the student's schedule page.
+            return all
+                .Where(r => r.StudentId == studentId &&
+                            (r.Status == "Pending" || r.Status == "Approved"))
+                .OrderByDescending(r => r.RegisteredAt)
+                .FirstOrDefault();
+        }
+
+
+        public async Task<Registration?> GetLatestRegistrationByStudentIdAsync(string studentId)
+        {
+            using var scope = _scopeFactory.CreateScope();
+            var regRepo = scope.ServiceProvider.GetRequiredService<IRegistrationRepository>();
+
+            var all = await regRepo.GetAllAsync();
+            return all
+                .Where(r => r.StudentId == studentId)
+                .OrderByDescending(r => r.RegisteredAt)
+                .FirstOrDefault();
         }
     }
 }

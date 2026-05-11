@@ -48,13 +48,34 @@ namespace NUPAL.Core.Infrastructure.Services.Scheduling
                     courses.Add(name.ToLower());
                     if (mappings != null)
                     {
+                        var nameTokens = name.ToLower().Split(new[] { ' ', '-', '&', '/', '(' , ')' }, StringSplitOptions.RemoveEmptyEntries)
+                                             .Where(t => t.Length > 2 || System.Text.RegularExpressions.Regex.IsMatch(t, "^[ivxldm0-9]+$")).ToList();
+                        
                         var mapping = mappings.FirstOrDefault(m => 
-                            (m.CourseCode != null && m.CourseCode.Equals(name, StringComparison.OrdinalIgnoreCase)) ||
-                            m.GetAllNames().Any(n => n.Equals(name, StringComparison.OrdinalIgnoreCase)));
+                        {
+                            var codes = new[] { m.CourseCode }.Concat(m.GetAllNames());
+                            foreach (var alias in codes)
+                            {
+                                if (string.IsNullOrEmpty(alias)) continue;
+                                var aliasTokens = alias.ToLower().Split(new[] { ' ', '-', '&', '/', '(', ')' }, StringSplitOptions.RemoveEmptyEntries)
+                                                       .Where(t => t.Length > 2 || System.Text.RegularExpressions.Regex.IsMatch(t, "^[ivxldm0-9]+$")).ToList();
+                                
+                                if (aliasTokens.Count == 0 || nameTokens.Count == 0) continue;
+
+                                // If one set of tokens is a majority subset of the other, call it a match
+                                // Use 'StartsWith' or 'Contains' to handle truncated words in the database
+                                var common = nameTokens.Count(nt => aliasTokens.Any(at => at == nt || at.StartsWith(nt) || nt.StartsWith(at) || at.Contains(nt) || nt.Contains(at)));
+                                var threshold = Math.Min(nameTokens.Count, aliasTokens.Count);
+                                if (common >= threshold || (threshold > 1 && common >= threshold - 1)) return true;
+                            }
+                            return false;
+                        });
                         
                         if (mapping != null && !string.IsNullOrEmpty(mapping.CourseCode))
                         {
                             normalizedCodes.Add(mapping.CourseCode);
+                            // Also add code to courses set so it's included in the vector vocab
+                            courses.Add(mapping.CourseCode.ToLower());
                         }
                     }
                 }

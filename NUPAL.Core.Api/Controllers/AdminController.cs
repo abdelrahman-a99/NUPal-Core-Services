@@ -118,6 +118,38 @@ namespace NUPAL.Core.Api.Controllers
             catch (Exception ex) { return StatusCode(500, new { error = ex.Message }); }
         }
 
+        // ── Registrations ─────────────────────────────────────────────────────
+
+        [HttpGet("registrations")]
+        public async Task<IActionResult> GetRegistrations()
+        {
+            if (!IsAdmin()) return Unauthorized(new { error = "admin_key_required" });
+            try
+            {
+                var regs = await _adminService.GetAllRegistrationsAsync();
+                return Ok(regs);
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { error = ex.Message });
+            }
+        }
+
+        [HttpPost("registrations/{id}/approve")]
+        public async Task<IActionResult> ApproveRegistration(string id, [FromBody] ApproveRegistrationDto dto)
+        {
+            if (!IsAdmin()) return Unauthorized(new { error = "admin_key_required" });
+            try
+            {
+                await _adminService.ApproveRegistrationAsync(id, dto);
+                return Ok(new { message = $"Registration {dto.Status} successfully" });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { error = ex.Message });
+            }
+        }
+
         // ── Course Mappings ───────────────────────────────────────────────────
 
         [HttpGet("course-mappings")]
