@@ -17,5 +17,10 @@ namespace Nupal.Core.Infrastructure.Repositories
         {
             await _collection.InsertOneAsync(message);
         }
+
+        public async Task<IEnumerable<ContactMessage>> GetAllAsync()
+        {
+            return await _collection.Find(_ => true).SortByDescending(m => m.SubmittedAt).ToListAsync();
+        }
     }
 }

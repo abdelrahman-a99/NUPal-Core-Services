@@ -16,6 +16,7 @@ namespace Nupal.Core.Infrastructure.Services
         private readonly IAiService _aiService;
         private readonly ISchedulingService _schedulingService;
         private readonly ISystemSettingsRepository _settingsRepo;
+        private readonly IRegistrationRepository _registrationRepo;
 
         public AdminService(
             IStudentRepository studentRepo,
@@ -26,7 +27,8 @@ namespace Nupal.Core.Infrastructure.Services
             IBlockRepository blockRepo,
             IAiService aiService,
             ISchedulingService schedulingService,
-            ISystemSettingsRepository settingsRepo)
+            ISystemSettingsRepository settingsRepo,
+            IRegistrationRepository registrationRepo)
         {
             _studentRepo = studentRepo;
             _rlJobRepo = rlJobRepo;
@@ -37,6 +39,7 @@ namespace Nupal.Core.Infrastructure.Services
             _aiService = aiService;
             _schedulingService = schedulingService;
             _settingsRepo = settingsRepo;
+            _registrationRepo = registrationRepo;
         }
 
 
@@ -167,10 +170,10 @@ namespace Nupal.Core.Infrastructure.Services
                 .Select(s => s.Education?.TotalCredits ?? 0)
                 .GroupBy(credits => credits switch
                 {
-                    >= 90 => "Senior (90+)",
-                    >= 60 => "Junior (60-89)",
-                    >= 30 => "Sophomore (30-59)",
-                    _ => "Freshman (0-29)"
+                    >= 106 => "Senior (106-135)",
+                    >= 71 => "Junior (71-105)",
+                    >= 36 => "Sophomore (36-70)",
+                    _ => "Freshman (0-35)"
                 })
                 .ToDictionary(g => g.Key, g => g.Count());
 
@@ -323,6 +326,23 @@ namespace Nupal.Core.Infrastructure.Services
             }
 
             return parsedBlock;
+        }
+
+        public async Task<List<Registration>> GetAllRegistrationsAsync()
+        {
+            return await _registrationRepo.GetAllAsync();
+        }
+
+        public async Task ApproveRegistrationAsync(string registrationId, ApproveRegistrationDto dto)
+        {
+            var reg = await _registrationRepo.GetByIdAsync(registrationId);
+            if (reg == null) return;
+
+            reg.Status = dto.Status;
+            reg.AdminNote = dto.AdminNote;
+            reg.ProcessedAt = DateTime.UtcNow;
+
+            await _registrationRepo.UpdateAsync(reg);
         }
 
         private static string NormalizeDay(string day)

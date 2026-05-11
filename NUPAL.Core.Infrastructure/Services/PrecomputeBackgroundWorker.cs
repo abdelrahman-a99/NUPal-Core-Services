@@ -41,7 +41,10 @@ namespace Nupal.Core.Infrastructure.Services
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "Error occurred executing Precompute Background Worker.");
+                    if (!stoppingToken.IsCancellationRequested)
+                    {
+                        _logger.LogError(ex, "Error occurred executing Precompute Background Worker.");
+                    }
                 }
 
                 await Task.Delay(_interval, stoppingToken);

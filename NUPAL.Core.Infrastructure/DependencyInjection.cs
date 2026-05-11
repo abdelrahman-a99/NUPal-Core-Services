@@ -19,7 +19,6 @@ namespace NUPAL.Core.Infrastructure
             services.AddSingleton<IMongoClient>(_ =>
             {
                 var settings = MongoClientSettings.FromConnectionString(mongoUrl);
-                // Reduce timeouts to prevent long hangs during DNS/connectivity issues
                 settings.ConnectTimeout = TimeSpan.FromSeconds(10);
                 settings.ServerSelectionTimeout = TimeSpan.FromSeconds(10);
                 return new MongoClient(settings);
@@ -66,6 +65,7 @@ namespace NUPAL.Core.Infrastructure
             services.AddHostedService<PrecomputeBackgroundWorker>();
 
             services.AddSingleton<IBlockRepository, BlockRepository>();
+            services.AddScoped<IRegistrationRepository, RegistrationRepository>();
             services.AddSingleton<ISchedulingService, SchedulingService>();
 
             services.AddScoped<IAdminService, AdminService>();
