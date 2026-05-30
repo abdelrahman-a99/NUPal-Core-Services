@@ -152,18 +152,6 @@ namespace NUPAL.Core.Application.DTOs
         [JsonPropertyName("target_track")]
         public string? TargetTrack { get; set; }
 
-        [JsonPropertyName("final_total_credits")]
-        public double? FinalTotalCredits { get; set; }
-
-        [JsonPropertyName("final_cum_gpa")]
-        public double? FinalCumGpa { get; set; }
-
-        [JsonPropertyName("graduated")]
-        public bool? Graduated { get; set; }
-
-        [JsonPropertyName("grad_flags")]
-        public JsonElement? GradFlags { get; set; }
-
         [JsonPropertyName("total_credits")]
         public double? TotalCredits { get; set; }
 
