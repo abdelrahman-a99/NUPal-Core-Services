@@ -30,11 +30,7 @@ namespace Nupal.Core.Infrastructure.Services
             _rlService = rlService;
         }
 
-<<<<<<< HEAD
-        public async Task<string> TriggerPrecomputeAsync(string studentId, bool isSimulation = false, int? episodes = null, bool force = false)
-=======
-        public async Task<string> TriggerPrecomputeAsync(string studentId, bool isSimulation = false, int? episodes = null, string? targetTrack = null)
->>>>>>> 52b989ddd4a62aca554d0ad28d13d347ca994be6
+        public async Task<string> TriggerPrecomputeAsync(string studentId, bool isSimulation = false, int? episodes = null, string? targetTrack = null, bool force = false)
         {
             var student = await _studentRepo.GetByIdAsync(studentId)
                           ?? await _studentRepo.FindByEmailAsync(studentId); // Support ID or Email
@@ -177,14 +173,10 @@ namespace Nupal.Core.Infrastructure.Services
                 {
                      // Trigger job with requested mode (simulation or production)
                      // Await the trigger to prevent slamming the RL service and database with concurrent requests
-<<<<<<< HEAD
                      await TriggerPrecomputeAsync(student.Account.Id, isSimulation, episodes: null, force: true);
                      
                      // Optional: Add a small delay if the RL service is fragile
                      await Task.Delay(500); 
-=======
-                    await TriggerPrecomputeAsync(student.Account.Id, isSimulation, episodes: null);
->>>>>>> 52b989ddd4a62aca554d0ad28d13d347ca994be6
 
                      // Optional: Add a small delay if the RL service is fragile
                     await Task.Delay(500);
@@ -321,16 +313,11 @@ namespace Nupal.Core.Infrastructure.Services
                };
             }
 
-<<<<<<< HEAD
             // Determine episode count: 
             // 1. Explicitly provided (testing)
             // 2. Simulation -> Default 5
             // 3. Production -> Default 5000
             int epCount = episodes ?? 2000;
-=======
-            // Preserve current caller behavior: explicit episodes wins; existing default remains light.
-            int epCount = episodes ?? 1;
->>>>>>> 52b989ddd4a62aca554d0ad28d13d347ca994be6
 
             return new RlTrainingRequest
             {
@@ -383,7 +370,6 @@ namespace Nupal.Core.Infrastructure.Services
                 }).ToList(),
                 Metrics = new RecommendationMetrics
                 {
-<<<<<<< HEAD
                     CumGpa = response.Metadata?.FinalCumGpa 
                              ?? response.Metadata?.BestEpisode?.CumGpa 
                              ?? lastTerm?.CumulativeGpaSoFar 
@@ -451,17 +437,10 @@ namespace Nupal.Core.Infrastructure.Services
                                 ?? (dto.Metadata?.Status == "already_finished" 
                                     || (dto.Metadata?.BestEpisode?.Graduated ?? lastTerm?.GraduatedSoFar ?? false)),
                     GradFlags = gradFlags ?? new Dictionary<string, object>()
-=======
-                    CumGpa = finalCumGpa,
-                    TotalCredits = finalTotalCredits,
-                    Graduated = graduated,
-                    GradFlags = ConvertGradFlags(response.Metadata?.GradFlags)
->>>>>>> 52b989ddd4a62aca554d0ad28d13d347ca994be6
                 }
             };
         }
 
-<<<<<<< HEAD
         /// <summary>Converts JsonElement and nested JsonElement values to plain CLR types for MongoDB compatibility.</summary>
         private static object ConvertToPlainObject(object value)
         {
@@ -484,36 +463,6 @@ namespace Nupal.Core.Infrastructure.Services
                 };
             }
             return value;
-=======
-        private static Dictionary<string, object> ConvertGradFlags(JsonElement? gradFlags)
-        {
-            if (!gradFlags.HasValue || gradFlags.Value.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined)
-            {
-                return new Dictionary<string, object>();
-            }
-
-            var element = gradFlags.Value;
-            if (element.ValueKind == JsonValueKind.Object)
-            {
-                var result = new Dictionary<string, object>();
-                foreach (var prop in element.EnumerateObject())
-                {
-                    result[prop.Name] = prop.Value.ValueKind switch
-                    {
-                        JsonValueKind.True => true,
-                        JsonValueKind.False => false,
-                        JsonValueKind.Number when prop.Value.TryGetDouble(out var d) => d,
-                        JsonValueKind.String => prop.Value.GetString() ?? string.Empty,
-                        JsonValueKind.Array => prop.Value.ToString(),
-                        JsonValueKind.Object => prop.Value.ToString(),
-                        _ => prop.Value.ToString()
-                    };
-                }
-                return result;
-            }
-
-            return new Dictionary<string, object>();
->>>>>>> 52b989ddd4a62aca554d0ad28d13d347ca994be6
         }
 
         private static string ComputeSha256(string rawData)
