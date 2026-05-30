@@ -65,7 +65,9 @@ namespace NUPAL.Core.API.Controllers
                     objectiveProfile = rlRecommendation.ObjectiveProfile,
                     modelVersion = rlRecommendation.ModelVersion,
                     policyVersion = rlRecommendation.PolicyVersion,
-                    createdAt = rlRecommendation.CreatedAt
+                    createdAt = rlRecommendation.CreatedAt,
+                    defaultProfile = rlRecommendation.DefaultProfile,
+                    profilesCount = rlRecommendation.Profiles?.Count ?? 0
                 }
             });
         }

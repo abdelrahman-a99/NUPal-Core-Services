@@ -30,7 +30,11 @@ namespace Nupal.Core.Infrastructure.Services
             _rlService = rlService;
         }
 
+<<<<<<< HEAD
+        public async Task<string> TriggerPrecomputeAsync(string studentId, bool isSimulation = false, int? episodes = null, bool force = false)
+=======
         public async Task<string> TriggerPrecomputeAsync(string studentId, bool isSimulation = false, int? episodes = null, string? targetTrack = null)
+>>>>>>> 52b989ddd4a62aca554d0ad28d13d347ca994be6
         {
             var student = await _studentRepo.GetByIdAsync(studentId)
                           ?? await _studentRepo.FindByEmailAsync(studentId); // Support ID or Email
@@ -43,6 +47,33 @@ namespace Nupal.Core.Infrastructure.Services
             // Fix: Store the "Clean" hash in the DB so SyncAll can compare apples-to-apples.
             // If we want to track sim/episodes, we should store them as separate columns in RlJob, not bake into the hash.
             var eduHash = ComputeSha256($"{RecommendationVariantSchemaVersion}|{eduJson}");
+
+            if (!force)
+            {
+                var latestJob = await _jobRepo.GetLatestByStudentIdAsync(student.Account.Id);
+                if (latestJob != null && latestJob.EducationHash == eduHash && latestJob.IsSimulation == isSimulation)
+                {
+                    // 1. If it is already in progress, check if it's fresh (created in the last 1 hour)
+                    if (latestJob.Status == JobStatus.Queued || latestJob.Status == JobStatus.Running)
+                    {
+                        if (latestJob.CreatedAt > DateTime.UtcNow.AddHours(-1))
+                        {
+                            Console.WriteLine($"[DEBUG] TriggerPrecompute: Job {latestJob.Id} is already in progress ({latestJob.Status}) for student {student.Account.Id}. Skipping duplicate run...");
+                            return latestJob.Id.ToString();
+                        }
+                    }
+                    // 2. If it is ready, make sure the recommendation exists
+                    else if (latestJob.Status == JobStatus.Ready && !string.IsNullOrEmpty(latestJob.ResultRecommendationId))
+                    {
+                        var recommendation = await _recRepo.GetByIdAsync(latestJob.ResultRecommendationId);
+                        if (recommendation != null)
+                        {
+                            Console.WriteLine($"[DEBUG] TriggerPrecompute: Student {student.Account.Id} already has a ready recommendation matching this education hash. Skipping redundant run...");
+                            return latestJob.Id.ToString();
+                        }
+                    }
+                }
+            }
 
             // Create Job
             var job = new RlJob
@@ -121,6 +152,15 @@ namespace Nupal.Core.Infrastructure.Services
                     {
                         needsJob = true;
                     }
+                    else if (latestJob.Status == JobStatus.Queued || latestJob.Status == JobStatus.Running)
+                    {
+                        // If job has been stuck in Queued/Running for more than 1 hour, retry it.
+                        if (latestJob.CreatedAt < DateTime.UtcNow.Subtract(TimeSpan.FromHours(1)))
+                        {
+                            Console.WriteLine($"[DEBUG] SyncAll: Job {latestJob.Id} has been stuck in status {latestJob.Status} since {latestJob.CreatedAt}. Re-triggering...");
+                            needsJob = true;
+                        }
+                    }
                     else if (latestJob.Status == JobStatus.Ready && !string.IsNullOrEmpty(latestJob.ResultRecommendationId))
                     {
                         // 2. Even if job says "Ready", check if the recommendation document still exists in the DB
@@ -137,7 +177,14 @@ namespace Nupal.Core.Infrastructure.Services
                 {
                      // Trigger job with requested mode (simulation or production)
                      // Await the trigger to prevent slamming the RL service and database with concurrent requests
+<<<<<<< HEAD
+                     await TriggerPrecomputeAsync(student.Account.Id, isSimulation, episodes: null, force: true);
+                     
+                     // Optional: Add a small delay if the RL service is fragile
+                     await Task.Delay(500); 
+=======
                     await TriggerPrecomputeAsync(student.Account.Id, isSimulation, episodes: null);
+>>>>>>> 52b989ddd4a62aca554d0ad28d13d347ca994be6
 
                      // Optional: Add a small delay if the RL service is fragile
                     await Task.Delay(500);
@@ -274,8 +321,16 @@ namespace Nupal.Core.Infrastructure.Services
                };
             }
 
+<<<<<<< HEAD
+            // Determine episode count: 
+            // 1. Explicitly provided (testing)
+            // 2. Simulation -> Default 5
+            // 3. Production -> Default 5000
+            int epCount = episodes ?? 2000;
+=======
             // Preserve current caller behavior: explicit episodes wins; existing default remains light.
             int epCount = episodes ?? 1;
+>>>>>>> 52b989ddd4a62aca554d0ad28d13d347ca994be6
 
             return new RlTrainingRequest
             {
@@ -293,16 +348,23 @@ namespace Nupal.Core.Infrastructure.Services
 
         private RlRecommendation MapToEntity(RlTrainingResponse response, string studentId, string targetTrack, string objectiveProfile)
         {
-            var finalCumGpa = response.Metadata?.FinalCumGpa
-                              ?? response.Metadata?.BestEpisode?.CumGpa
-                              ?? 0;
-            var finalTotalCredits = response.Metadata?.FinalTotalCredits
-                                    ?? response.Metadata?.BestEpisode?.TotalCredits
-                                    ?? response.Metadata?.TotalCredits
-                                    ?? 0;
-            var graduated = (response.Metadata?.Status == "already_finished")
-                            || (response.Metadata?.Graduated ?? false)
-                            || (response.Metadata?.BestEpisode?.Graduated ?? false);
+            var lastTerm = response.Terms?.OrderBy(t => t.Term).LastOrDefault();
+
+            Dictionary<string, object>? gradFlags = null;
+            if (response.Metadata?.GradFlags != null)
+            {
+                // Convert JsonElement values to plain CLR types so MongoDB can serialize them
+                gradFlags = response.Metadata.GradFlags
+                    .ToDictionary(kvp => kvp.Key, kvp => ConvertToPlainObject(kvp.Value));
+            }
+            else if (response.Metadata?.TopFailedFlags is JsonElement je && je.ValueKind == JsonValueKind.Array)
+            {
+                gradFlags = je.EnumerateArray()
+                    .Where(x => x.ValueKind == JsonValueKind.Array && x.GetArrayLength() == 2)
+                    .ToDictionary(
+                        x => x[0].ToString(), 
+                        x => (object)x[1].GetInt32());
+            }
 
             return new RlRecommendation
             {
@@ -321,14 +383,108 @@ namespace Nupal.Core.Infrastructure.Services
                 }).ToList(),
                 Metrics = new RecommendationMetrics
                 {
+<<<<<<< HEAD
+                    CumGpa = response.Metadata?.FinalCumGpa 
+                             ?? response.Metadata?.BestEpisode?.CumGpa 
+                             ?? lastTerm?.CumulativeGpaSoFar 
+                             ?? 0,
+                    TotalCredits = response.Metadata?.FinalTotalCredits 
+                                   ?? response.Metadata?.BestEpisode?.TotalCredits 
+                                   ?? response.Metadata?.TotalCredits 
+                                   ?? lastTerm?.TotalCreditsSoFar 
+                                   ?? 0,
+                    Graduated = response.Metadata?.Graduated 
+                                ?? (response.Metadata?.Status == "already_finished" 
+                                    || (response.Metadata?.BestEpisode?.Graduated ?? lastTerm?.GraduatedSoFar ?? false)),
+                    GradFlags = gradFlags ?? new Dictionary<string, object>()
+                },
+                DefaultProfile = response.DefaultProfile ?? "balanced",
+                Profiles = response.Profiles?.ToDictionary(
+                    kvp => kvp.Key,
+                    kvp => MapProfile(kvp.Value)
+                )
+            };
+        }
+
+        private ProfileRecommendation MapProfile(ProfileRecommendationDto dto)
+        {
+            var lastTerm = dto.Terms?.OrderBy(t => t.Term).LastOrDefault();
+
+            Dictionary<string, object>? gradFlags = null;
+            if (dto.Metadata?.GradFlags != null)
+            {
+                // Convert JsonElement values to plain CLR types so MongoDB can serialize them
+                gradFlags = dto.Metadata.GradFlags
+                    .ToDictionary(kvp => kvp.Key, kvp => ConvertToPlainObject(kvp.Value));
+            }
+            else if (dto.Metadata?.TopFailedFlags is JsonElement je && je.ValueKind == JsonValueKind.Array)
+            {
+                gradFlags = je.EnumerateArray()
+                    .Where(x => x.ValueKind == JsonValueKind.Array && x.GetArrayLength() == 2)
+                    .ToDictionary(
+                        x => x[0].ToString(), 
+                        x => (object)x[1].GetInt32());
+            }
+
+            return new ProfileRecommendation
+            {
+                Courses = (dto.RecommendedSlates != null && dto.RecommendedSlates.Any()) 
+                          ? dto.RecommendedSlates.First() 
+                          : new List<string>(),
+                SlatesByTerm = dto.Terms?.Select(t => new TermRecommendation 
+                { 
+                    Term = t.Term, 
+                    Slate = t.Slate 
+                }).ToList(),
+                Metrics = new RecommendationMetrics
+                {
+                    CumGpa = dto.Metadata?.FinalCumGpa 
+                             ?? dto.Metadata?.BestEpisode?.CumGpa 
+                             ?? lastTerm?.CumulativeGpaSoFar 
+                             ?? 0,
+                    TotalCredits = dto.Metadata?.FinalTotalCredits 
+                                   ?? dto.Metadata?.BestEpisode?.TotalCredits 
+                                   ?? dto.Metadata?.TotalCredits 
+                                   ?? lastTerm?.TotalCreditsSoFar 
+                                   ?? 0,
+                    Graduated = dto.Metadata?.Graduated 
+                                ?? (dto.Metadata?.Status == "already_finished" 
+                                    || (dto.Metadata?.BestEpisode?.Graduated ?? lastTerm?.GraduatedSoFar ?? false)),
+                    GradFlags = gradFlags ?? new Dictionary<string, object>()
+=======
                     CumGpa = finalCumGpa,
                     TotalCredits = finalTotalCredits,
                     Graduated = graduated,
                     GradFlags = ConvertGradFlags(response.Metadata?.GradFlags)
+>>>>>>> 52b989ddd4a62aca554d0ad28d13d347ca994be6
                 }
             };
         }
 
+<<<<<<< HEAD
+        /// <summary>Converts JsonElement and nested JsonElement values to plain CLR types for MongoDB compatibility.</summary>
+        private static object ConvertToPlainObject(object value)
+        {
+            if (value is JsonElement je)
+            {
+                return je.ValueKind switch
+                {
+                    JsonValueKind.True    => true,
+                    JsonValueKind.False   => false,
+                    JsonValueKind.Null    => (object)"null",
+                    JsonValueKind.Number  => je.TryGetInt64(out var l)  ? (object)l
+                                           : je.TryGetDouble(out var d) ? d : je.GetRawText(),
+                    JsonValueKind.String  => je.GetString() ?? "",
+                    JsonValueKind.Array   => je.EnumerateArray()
+                                               .Select(e => ConvertToPlainObject(e))
+                                               .ToList<object>(),
+                    JsonValueKind.Object  => je.EnumerateObject()
+                                               .ToDictionary(p => p.Name, p => ConvertToPlainObject(p.Value)),
+                    _                    => je.GetRawText()
+                };
+            }
+            return value;
+=======
         private static Dictionary<string, object> ConvertGradFlags(JsonElement? gradFlags)
         {
             if (!gradFlags.HasValue || gradFlags.Value.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined)
@@ -357,6 +513,7 @@ namespace Nupal.Core.Infrastructure.Services
             }
 
             return new Dictionary<string, object>();
+>>>>>>> 52b989ddd4a62aca554d0ad28d13d347ca994be6
         }
 
         private static string ComputeSha256(string rawData)

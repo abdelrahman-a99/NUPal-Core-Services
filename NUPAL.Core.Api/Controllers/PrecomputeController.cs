@@ -24,7 +24,11 @@ namespace Nupal.Core.Api.Controllers
 
             try
             {
+<<<<<<< HEAD
+                var jobId = await _precomputeService.TriggerPrecomputeAsync(request.StudentId, request.IsSimulation, request.Episodes, request.Force);
+=======
                 var jobId = await _precomputeService.TriggerPrecomputeAsync(request.StudentId, request.IsSimulation, request.Episodes, request.TargetTrack);
+>>>>>>> 52b989ddd4a62aca554d0ad28d13d347ca994be6
                 return Accepted(new { JobId = jobId, Message = "Precompute job queued." });
             }
             catch (KeyNotFoundException ex)
@@ -64,6 +68,6 @@ namespace Nupal.Core.Api.Controllers
         public string? StudentId { get; set; }
         public bool IsSimulation { get; set; }
         public int? Episodes { get; set; } // Optional, default handled in service
-        public string? TargetTrack { get; set; } // Optional: general, big_data, media
+        public bool Force { get; set; }
     }
 }

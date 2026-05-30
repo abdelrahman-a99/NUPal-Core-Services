@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using NUPAL.Core.Application.DTOs;
 using NUPAL.Core.Application.Interfaces;
+using Nupal.Domain.Entities;
 using System.Net.Mail;
 
 namespace NUPAL.Core.API.Controllers
@@ -11,11 +12,13 @@ namespace NUPAL.Core.API.Controllers
     {
         private readonly IStudentService _service;
         private readonly IConfiguration _config;
+        private readonly ICacheService _cache;
 
-        public StudentsController(IStudentService service, IConfiguration config)
+        public StudentsController(IStudentService service, IConfiguration config, ICacheService cache)
         {
             _service = service;
             _config = config;
+            _cache = cache;
         }
 
         [HttpPost("import")]
@@ -111,13 +114,26 @@ namespace NUPAL.Core.API.Controllers
         {
             try
             {
+                var cacheKey = $"rl-rec:{id}";
+                var cached = await _cache.GetAsync<RlRecommendationResponseDto>(cacheKey);
+                if (cached is not null)
+                {
+                    return Ok(cached);
+                }
+
                 var s = await _service.GetStudentByIdAsync(id);
                 if (s == null) return NotFound(new { error = "student_not_found" });
 
                 var rlRecommendation = await rlRepo.GetLatestByStudentIdAsync(id, NormalizeTargetTrack(targetTrack), NormalizeObjectiveProfile(objectiveProfile));
                 if (rlRecommendation == null) return NotFound(new { error = "no_recommendation_found" });
 
-                var mappings = await mappingRepo.GetAllAsync();
+                var mappingsCacheKey = "course-mappings:all";
+                var mappings = await _cache.GetAsync<List<CourseMapping>>(mappingsCacheKey);
+                if (mappings is null)
+                {
+                    mappings = await mappingRepo.GetAllAsync();
+                    await _cache.SetAsync(mappingsCacheKey, mappings, TimeSpan.FromHours(24));
+                }
 
                 var displayCourses = rlRecommendation.Courses.Select(c =>
                 {
@@ -136,17 +152,21 @@ namespace NUPAL.Core.API.Controllers
                     return c; // fallback: return raw code as-is
                 }).Distinct().ToList();
 
-                return Ok(new
+                var result = new RlRecommendationResponseDto
                 {
-                    id = rlRecommendation.Id.ToString(),
-                    termIndex = rlRecommendation.TermIndex,
-                    courses = displayCourses,
-                    slates = rlRecommendation.SlatesByTerm,
-                    metrics = rlRecommendation.Metrics,
-                    targetTrack = rlRecommendation.TargetTrack,
-                    objectiveProfile = rlRecommendation.ObjectiveProfile,
-                    createdAt = rlRecommendation.CreatedAt
-                });
+                    Id = rlRecommendation.Id.ToString(),
+                    TermIndex = rlRecommendation.TermIndex,
+                    Courses = displayCourses,
+                    Slates = rlRecommendation.SlatesByTerm,
+                    Metrics = rlRecommendation.Metrics,
+                    CreatedAt = rlRecommendation.CreatedAt,
+                    DefaultProfile = rlRecommendation.DefaultProfile,
+                    Profiles = rlRecommendation.Profiles
+                };
+
+                await _cache.SetAsync(cacheKey, result, TimeSpan.FromHours(1));
+
+                return Ok(result);
             }
             catch (Exception ex)
             {

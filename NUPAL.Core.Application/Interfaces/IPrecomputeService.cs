@@ -4,7 +4,7 @@ namespace NUPAL.Core.Application.Interfaces
 {
     public interface IPrecomputeService
     {
-        Task<string> TriggerPrecomputeAsync(string studentId, bool isSimulation = false, int? episodes = null, string? targetTrack = null);
+        Task<string> TriggerPrecomputeAsync(string studentId, bool isSimulation = false, int? episodes = null, bool force = false);
         Task<object> GetJobStatusAsync();
         Task<RlRecommendation?> GetRecommendationAsync(string id);
         Task<SyncResult> SyncAllStudentsAsync(bool isSimulation = false);

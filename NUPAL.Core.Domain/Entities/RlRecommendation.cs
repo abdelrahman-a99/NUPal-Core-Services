@@ -26,6 +26,16 @@ namespace Nupal.Domain.Entities
 
         public string? ModelVersion { get; set; }
         public string? PolicyVersion { get; set; }
+
+        public string? DefaultProfile { get; set; }
+        public Dictionary<string, ProfileRecommendation>? Profiles { get; set; }
+    }
+
+    public class ProfileRecommendation
+    {
+        public List<string> Courses { get; set; } = new();
+        public List<TermRecommendation>? SlatesByTerm { get; set; }
+        public RecommendationMetrics Metrics { get; set; }
     }
 
     public class TermRecommendation

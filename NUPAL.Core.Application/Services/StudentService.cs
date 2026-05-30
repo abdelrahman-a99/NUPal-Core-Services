@@ -5,6 +5,7 @@ using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text;
 using Microsoft.IdentityModel.Tokens;
+using System.Linq;
 
 namespace NUPAL.Core.Application.Services
 {
@@ -12,30 +13,39 @@ namespace NUPAL.Core.Application.Services
     {
         private readonly IStudentRepository _repo;
         private readonly IPrecomputeService _precomputeService;
-        public StudentService(IStudentRepository repo, IPrecomputeService precomputeService)
+        private readonly ICacheService _cache;
+
+        private static readonly TimeSpan StudentTtl = TimeSpan.FromMinutes(30);
+
+        public StudentService(IStudentRepository repo, IPrecomputeService precomputeService, ICacheService cache)
         {
             _repo = repo;
             _precomputeService = precomputeService;
+            _cache = cache;
         }
 
         public async Task UpsertStudentAsync(ImportStudentDto dto)
         {
-            var semesters = dto.Education.Semesters?.Select(kv => new Semester
-            {
-                Term = kv.Key,
-                Optional = kv.Value.Optional,
-                Courses = kv.Value.Courses?.Select(c => new Course
+            var semesters = dto.Education.Semesters?
+                .OrderBy(kv => kv.Key)
+                .Select(kv => new Semester
                 {
-                    CourseId = c.CourseId,
-                    CourseName = c.CourseName,
-                    Credit = c.Credit,
-                    Grade = c.Grade,
-                    Gpa = c.Gpa
-                }).ToList() ?? new List<Course>(),
-                SemesterCredits = kv.Value.SemesterCredits,
-                SemesterGpa = kv.Value.SemesterGpa,
-                CumulativeGpa = kv.Value.CumulativeGpa
-            }).ToList() ?? new List<Semester>();
+                    Term = kv.Key,
+                    Optional = kv.Value.Optional,
+                    Courses = kv.Value.Courses?
+                        .OrderBy(c => c.CourseId)
+                        .Select(c => new Course
+                        {
+                            CourseId = c.CourseId,
+                            CourseName = c.CourseName,
+                            Credit = c.Credit,
+                            Grade = c.Grade,
+                            Gpa = c.Gpa
+                        }).ToList() ?? new List<Course>(),
+                    SemesterCredits = kv.Value.SemesterCredits,
+                    SemesterGpa = kv.Value.SemesterGpa,
+                    CumulativeGpa = kv.Value.CumulativeGpa
+                }).ToList() ?? new List<Semester>();
 
             var student = new Student
             {
@@ -57,8 +67,9 @@ namespace NUPAL.Core.Application.Services
 
             await _repo.UpsertAsync(student);
 
-            // Trigger precompute automatically on any data change
-            // We use production mode by default for automatic triggers
+            await _cache.RemoveAsync($"student:id:{student.Account.Id}");
+            await _cache.RemoveAsync($"student:email:{student.Account.Email}");
+            await _cache.RemoveAsync($"rl-rec:{student.Account.Id}");
             try 
             {
                 await _precomputeService.TriggerPrecomputeAsync(student.Account.Id, isSimulation: false);
@@ -72,16 +83,28 @@ namespace NUPAL.Core.Application.Services
 
         public async Task<StudentDto> GetStudentByEmailAsync(string email)
         {
-            var s = await _repo.FindByEmailAsync(email.ToLower());
-            if (s == null) return null;
-            return MapToDto(s);
+            var key = $"student:email:{email.ToLower()}";
+            return await _cache.GetOrSetAsync(
+                key,
+                async () =>
+                {
+                    var s = await _repo.FindByEmailAsync(email.ToLower());
+                    return s == null ? null! : MapToDto(s);
+                },
+                StudentTtl);
         }
 
         public async Task<StudentDto> GetStudentByIdAsync(string id)
         {
-            var s = await _repo.GetByIdAsync(id);
-            if (s == null) return null;
-            return MapToDto(s);
+            var key = $"student:id:{id}";
+            return await _cache.GetOrSetAsync(
+                key,
+                async () =>
+                {
+                    var s = await _repo.GetByIdAsync(id);
+                    return s == null ? null! : MapToDto(s);
+                },
+                StudentTtl);
         }
 
         public async Task<AuthResponseDto> AuthenticateAsync(LoginDto loginDto, string jwtKey, string jwtIssuer, string jwtAudience)
@@ -113,11 +136,16 @@ namespace NUPAL.Core.Application.Services
             };
             var token = tokenHandler.CreateToken(tokenDescriptor);
             var tokenString = tokenHandler.WriteToken(token);
+            var studentDto = MapToDto(s);
+
+            // Warm the cache on login — next dashboard load is instant
+            await _cache.SetAsync($"student:id:{s.Account.Id}",    studentDto, StudentTtl);
+            await _cache.SetAsync($"student:email:{s.Account.Email}", studentDto, StudentTtl);
 
             return new AuthResponseDto
             {
                 Token = tokenString,
-                Student = MapToDto(s)
+                Student = studentDto
             };
         }
 
