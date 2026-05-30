@@ -5,6 +5,7 @@ using NUPAL.Core.Application.Interfaces;
 using Nupal.Core.Infrastructure.Repositories;
 using Nupal.Core.Infrastructure.Services;
 using NUPAL.Core.Infrastructure.Services;
+using StackExchange.Redis;
 
 namespace NUPAL.Core.Infrastructure
 {
@@ -12,6 +13,27 @@ namespace NUPAL.Core.Infrastructure
     {
         public static IServiceCollection AddInfrastructureServices(this IServiceCollection services, IConfiguration configuration)
         {
+            var redisConn = configuration.GetValue<string>("Redis:ConnectionString");
+            var redisName = configuration.GetValue<string>("Redis:InstanceName");
+
+            services.AddSingleton<IConnectionMultiplexer>(_ =>
+            {
+                var opts = ConfigurationOptions.Parse(redisConn);
+                opts.AbortOnConnectFail = false;
+                opts.ConnectRetry       = 3;
+                opts.ConnectTimeout     = 5000;   
+                opts.ReconnectRetryPolicy = new LinearRetry(1000);
+                return ConnectionMultiplexer.Connect(opts);
+            });
+
+            services.AddStackExchangeRedisCache(o =>
+            {
+                o.Configuration  = redisConn;
+                o.InstanceName   = redisName;
+            });
+
+            services.AddSingleton<ICacheService, RedisCacheService>();
+
             var mongoUrl = configuration.GetValue<string>("MONGO_URL")
                            ?? Environment.GetEnvironmentVariable("MONGO_URL")
                            ?? throw new InvalidOperationException("MongoDB connection string is not configured. Please provide 'MONGO_URL' in appsettings or environment variables.");

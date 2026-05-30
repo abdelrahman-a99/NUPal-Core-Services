@@ -27,16 +27,38 @@ namespace Nupal.Core.Infrastructure.Services
                 PropertyNamingPolicy = null
             };
 
-            var resp = await _httpClient.PostAsJsonAsync($"{_baseUrl.TrimEnd('/')}/route", request, options, ct);
-            if (!resp.IsSuccessStatusCode)
+            try
             {
-                var body = await resp.Content.ReadAsStringAsync(ct);
-                throw new HttpRequestException($"Agent service failed: {(int)resp.StatusCode} - {body}");
-            }
+                var resp = await _httpClient.PostAsJsonAsync($"{_baseUrl.TrimEnd('/')}/route", request, options, ct);
+                if (!resp.IsSuccessStatusCode)
+                {
+                    var body = await resp.Content.ReadAsStringAsync(ct);
+                    Console.WriteLine($"[AgentClient] Agent service failed: {(int)resp.StatusCode} - {body}. Using fallback.");
+                    return BuildFallbackResponse();
+                }
 
-            var json = await resp.Content.ReadAsStringAsync(ct);
-            var parsed = JsonSerializer.Deserialize<AgentRouteResponseDto>(json, options);
-            return parsed ?? new AgentRouteResponseDto { Intent = "faq", Results = new List<AgentResultDto>() };
+                var json = await resp.Content.ReadAsStringAsync(ct);
+                var parsed = JsonSerializer.Deserialize<AgentRouteResponseDto>(json, options);
+                return parsed ?? BuildFallbackResponse();
+            }
+            catch (Exception ex) when (ex is HttpRequestException || ex is TaskCanceledException || ex is OperationCanceledException)
+            {
+                Console.WriteLine($"[AgentClient] Agent service unreachable: {ex.Message}. Using fallback.");
+                return BuildFallbackResponse();
+            }
         }
+
+        private static AgentRouteResponseDto BuildFallbackResponse() => new()
+        {
+            Intent = "faq",
+            Results = new List<AgentResultDto>
+            {
+                new AgentResultDto
+                {
+                    Kind = "rag",
+                    Answer = "عذراً، خدمة المساعد الذكي غير متاحة حالياً. يرجى المحاولة مرة أخرى لاحقاً.",
+                }
+            }
+        };
     }
 }

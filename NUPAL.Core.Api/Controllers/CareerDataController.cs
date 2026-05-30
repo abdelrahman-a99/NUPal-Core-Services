@@ -2,6 +2,7 @@ using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Nupal.Domain.Entities;
+using NUPAL.Core.Application.DTOs;
 using NUPAL.Core.Application.Interfaces;
 
 namespace NUPAL.Core.Api.Controllers
@@ -13,11 +14,13 @@ namespace NUPAL.Core.Api.Controllers
     {
         private readonly IResumeRepository _resumeRepository;
         private readonly IJobFitRepository _jobFitRepository;
+        private readonly ICacheService _cache;
 
-        public CareerDataController(IResumeRepository resumeRepository, IJobFitRepository jobFitRepository)
+        public CareerDataController(IResumeRepository resumeRepository, IJobFitRepository jobFitRepository, ICacheService cache)
         {
             _resumeRepository = resumeRepository;
             _jobFitRepository = jobFitRepository;
+            _cache = cache;
         }
 
         [HttpPost("resume-analyses")]
@@ -41,6 +44,10 @@ namespace NUPAL.Core.Api.Controllers
             };
 
             await _resumeRepository.SaveAsync(model);
+
+            // Invalidate cache
+            await _cache.RemoveAsync($"resumes:{studentEmail.Trim().ToLower()}");
+
             return Ok(new { id = model.Id.ToString() });
         }
 
@@ -52,15 +59,22 @@ namespace NUPAL.Core.Api.Controllers
             if (!OwnsStudentEmail(studentEmail))
                 return Forbid();
 
+            var key = $"resumes:{studentEmail.Trim().ToLower()}";
+            var cached = await _cache.GetAsync<List<ResumeAnalysisResponseDto>>(key);
+            if (cached is not null)
+                return Ok(cached);
+
             var rows = await _resumeRepository.GetByStudentEmailAsync(studentEmail.Trim());
-            var payload = rows.Select(x => new
+            var payload = rows.Select(x => new ResumeAnalysisResponseDto
             {
                 Id = x.Id.ToString(),
-                x.StudentEmail,
-                x.FileName,
-                x.AnalyzedAt,
-                x.Data
-            });
+                StudentEmail = x.StudentEmail,
+                FileName = x.FileName,
+                AnalyzedAt = x.AnalyzedAt,
+                Data = x.Data
+            }).ToList();
+
+            await _cache.SetAsync(key, payload, TimeSpan.FromMinutes(15));
             return Ok(payload);
         }
 
@@ -99,6 +113,10 @@ namespace NUPAL.Core.Api.Controllers
                 return NotFound(new { detail = "Resume not found" });
 
             await _resumeRepository.DeleteAsync(id);
+
+            // Invalidate cache
+            await _cache.RemoveAsync($"resumes:{studentEmail.Trim().ToLower()}");
+
             return NoContent();
         }
 
@@ -124,6 +142,10 @@ namespace NUPAL.Core.Api.Controllers
             };
 
             await _jobFitRepository.SaveAsync(model);
+
+            // Invalidate cache
+            await _cache.RemoveAsync($"jobfits:{studentEmail.Trim().ToLower()}");
+
             return Ok(new { id = model.Id.ToString() });
         }
 
@@ -135,16 +157,23 @@ namespace NUPAL.Core.Api.Controllers
             if (!OwnsStudentEmail(studentEmail))
                 return Forbid();
 
+            var key = $"jobfits:{studentEmail.Trim().ToLower()}";
+            var cached = await _cache.GetAsync<List<JobFitResponseDto>>(key);
+            if (cached is not null)
+                return Ok(cached);
+
             var rows = await _jobFitRepository.GetByStudentEmailAsync(studentEmail.Trim());
-            var payload = rows.Select(x => new
+            var payload = rows.Select(x => new JobFitResponseDto
             {
                 Id = x.Id.ToString(),
-                x.StudentEmail,
-                x.JobUrl,
-                x.JobText,
-                x.AnalyzedAt,
-                x.AnalysisJson
-            });
+                StudentEmail = x.StudentEmail,
+                JobUrl = x.JobUrl,
+                JobText = x.JobText,
+                AnalyzedAt = x.AnalyzedAt,
+                AnalysisJson = x.AnalysisJson
+            }).ToList();
+
+            await _cache.SetAsync(key, payload, TimeSpan.FromMinutes(15));
             return Ok(payload);
         }
 
@@ -184,6 +213,10 @@ namespace NUPAL.Core.Api.Controllers
                 return NotFound(new { detail = "Job fit not found" });
 
             await _jobFitRepository.DeleteAsync(id);
+
+            // Invalidate cache
+            await _cache.RemoveAsync($"jobfits:{studentEmail.Trim().ToLower()}");
+
             return NoContent();
         }
 

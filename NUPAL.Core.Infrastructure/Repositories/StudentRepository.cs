@@ -53,6 +53,7 @@ namespace Nupal.Core.Infrastructure.Repositories
                 .Set(x => x.Education.TotalCredits, s.Education.TotalCredits)
                 .Set(x => x.Education.NumSemesters, s.Education.NumSemesters)
                 .Set(x => x.Education.Semesters, s.Education.Semesters)
+                .Set(x => x.LatestRecommendationId, s.LatestRecommendationId)
                 .SetOnInsert(x => x.Account.Id, s.Account.Id);
 
             await _col.UpdateOneAsync(filter, update, new UpdateOptions { IsUpsert = true });

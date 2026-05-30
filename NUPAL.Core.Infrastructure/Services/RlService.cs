@@ -18,7 +18,7 @@ namespace Nupal.Core.Infrastructure.Services
             _baseUrl = config["RlServiceUrl"] 
                        ?? throw new InvalidOperationException("RL Recommender Service URL is not configured. Please provide 'RlServiceUrl' in appsettings.");
             
-            _httpClient.Timeout = TimeSpan.FromMinutes(10); // Long timeout for training
+            _httpClient.Timeout = TimeSpan.FromHours(3); // Long timeout for training (500+ episodes)
         }
 
         public async Task<RlTrainingResponse> GetRecommendationAsync(RlTrainingRequest request)

@@ -63,7 +63,9 @@ namespace NUPAL.Core.API.Controllers
                     slatesCount = rlRecommendation.SlatesByTerm?.Count ?? 0,
                     modelVersion = rlRecommendation.ModelVersion,
                     policyVersion = rlRecommendation.PolicyVersion,
-                    createdAt = rlRecommendation.CreatedAt
+                    createdAt = rlRecommendation.CreatedAt,
+                    defaultProfile = rlRecommendation.DefaultProfile,
+                    profilesCount = rlRecommendation.Profiles?.Count ?? 0
                 }
             });
         }

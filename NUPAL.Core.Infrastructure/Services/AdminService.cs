@@ -428,7 +428,9 @@ namespace Nupal.Core.Infrastructure.Services
             SlatesByTerm = rec.SlatesByTerm,
             Metrics = rec.Metrics,
             ModelVersion = rec.ModelVersion,
-            PolicyVersion = rec.PolicyVersion
+            PolicyVersion = rec.PolicyVersion,
+            DefaultProfile = rec.DefaultProfile,
+            Profiles = rec.Profiles
         };
     }
 }

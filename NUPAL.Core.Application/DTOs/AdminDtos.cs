@@ -78,6 +78,8 @@ namespace NUPAL.Core.Application.DTOs
         public object? Metrics { get; set; }
         public string? ModelVersion { get; set; }
         public string? PolicyVersion { get; set; }
+        public string? DefaultProfile { get; set; }
+        public object? Profiles { get; set; }
     }
 
     // ── System Stats DTOs ─────────────────────────────────────────────────────

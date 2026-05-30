@@ -84,6 +84,24 @@ namespace NUPAL.Core.Application.DTOs
 
         [JsonPropertyName("metadata")]
         public RlMetadata Metadata { get; set; }
+
+        [JsonPropertyName("default_profile")]
+        public string? DefaultProfile { get; set; }
+
+        [JsonPropertyName("profiles")]
+        public Dictionary<string, ProfileRecommendationDto>? Profiles { get; set; }
+    }
+
+    public class ProfileRecommendationDto
+    {
+        [JsonPropertyName("recommended_slates")]
+        public List<List<string>> RecommendedSlates { get; set; }
+
+        [JsonPropertyName("terms")]
+        public List<RlTermResult> Terms { get; set; }
+
+        [JsonPropertyName("metadata")]
+        public RlMetadata Metadata { get; set; }
     }
 
     public class RlTermResult
@@ -132,6 +150,18 @@ namespace NUPAL.Core.Application.DTOs
 
         [JsonPropertyName("top_failed_flags")]
         public object? TopFailedFlags { get; set; }
+
+        [JsonPropertyName("final_total_credits")]
+        public double? FinalTotalCredits { get; set; }
+
+        [JsonPropertyName("final_cum_gpa")]
+        public double? FinalCumGpa { get; set; }
+
+        [JsonPropertyName("graduated")]
+        public bool? Graduated { get; set; }
+
+        [JsonPropertyName("grad_flags")]
+        public Dictionary<string, object>? GradFlags { get; set; }
     }
 
     public class RlBestEpisode
