@@ -328,11 +328,9 @@ namespace Nupal.Core.Infrastructure.Services
                 };
             }
 
-            // Determine episode count: 
-            // 1. Explicitly provided (testing)
-            // 2. Simulation -> Default 5
-            // 3. Production -> Default 5000
-            int epCount = episodes ?? 2000;
+            // Temporary Hugging Face-safe default.
+            // Reset this to 2000 after adding a real backend queue for RL precompute.
+            int epCount = episodes ?? 500;
 
             return new RlTrainingRequest
             {

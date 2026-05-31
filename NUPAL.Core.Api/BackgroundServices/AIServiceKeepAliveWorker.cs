@@ -9,7 +9,8 @@ public class AIServiceKeepAliveWorker : BackgroundService
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly IConfiguration _configuration;
     private readonly ILogger<AIServiceKeepAliveWorker> _logger;
-    private readonly TimeSpan _interval = TimeSpan.FromMinutes(10);
+    private readonly TimeSpan _interval;
+    private readonly TimeSpan _pingTimeout;
 
     public AIServiceKeepAliveWorker(
         IHttpClientFactory httpClientFactory,
@@ -19,6 +20,14 @@ public class AIServiceKeepAliveWorker : BackgroundService
         _httpClientFactory = httpClientFactory;
         _configuration = configuration;
         _logger = logger;
+
+        _interval = TimeSpan.FromMinutes(
+            _configuration.GetValue<double?>("ExternalServiceTimeouts:KeepAliveIntervalMinutes") ?? 10
+        );
+
+        _pingTimeout = TimeSpan.FromSeconds(
+            _configuration.GetValue<double?>("ExternalServiceTimeouts:KeepAliveSeconds") ?? 300
+        );
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -31,6 +40,10 @@ public class AIServiceKeepAliveWorker : BackgroundService
             {
                 var rlServiceUrl = _configuration["RlServiceUrl"];
                 var agentServiceUrl = _configuration["AgentServiceUrl"];
+                var ragServiceUrl = _configuration["RagServiceUrl"]
+                                    ?? _configuration["RAG_BASE_URL"]
+                                    ?? _configuration["RagService:Url"];
+                var careerServiceUrl = _configuration["CareerServices:Url"];
 
                 if (!string.IsNullOrEmpty(rlServiceUrl))
                     await PingService(rlServiceUrl, "RL Service", stoppingToken);
@@ -38,7 +51,9 @@ public class AIServiceKeepAliveWorker : BackgroundService
                 if (!string.IsNullOrEmpty(agentServiceUrl))
                     await PingService(agentServiceUrl, "Agent Service", stoppingToken);
 
-                var careerServiceUrl = _configuration["CareerServices:Url"];
+                if (!string.IsNullOrEmpty(ragServiceUrl))
+                    await PingService(ragServiceUrl, "RAG Service", stoppingToken);
+
                 if (!string.IsNullOrEmpty(careerServiceUrl))
                     await PingService(careerServiceUrl, "Career Services", stoppingToken);
             }
@@ -76,7 +91,7 @@ public class AIServiceKeepAliveWorker : BackgroundService
         try
         {
             using var client = _httpClientFactory.CreateClient();
-            client.Timeout = TimeSpan.FromSeconds(60);
+            client.Timeout = _pingTimeout;
 
             TryLog(() => _logger.LogInformation("Pinging {ServiceName} at {Url}...", serviceName, url));
             var response = await client.GetAsync(url, ct);

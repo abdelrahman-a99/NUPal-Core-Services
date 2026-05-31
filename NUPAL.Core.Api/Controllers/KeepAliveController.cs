@@ -25,6 +25,10 @@ public class KeepAliveController : ControllerBase
     {
         var rlServiceUrl = _configuration["RlServiceUrl"];
         var agentServiceUrl = _configuration["AgentServiceUrl"];
+        var ragServiceUrl = _configuration["RagServiceUrl"]
+                            ?? _configuration["RAG_BASE_URL"]
+                            ?? _configuration["RagService:Url"];
+        var careerServiceUrl = _configuration["CareerServices:Url"];
 
         var results = new Dictionary<string, string>();
 
@@ -36,6 +40,16 @@ public class KeepAliveController : ControllerBase
         if (!string.IsNullOrEmpty(agentServiceUrl))
         {
             results.Add("AgentService", await SafePing(agentServiceUrl));
+        }
+
+        if (!string.IsNullOrEmpty(ragServiceUrl))
+        {
+            results.Add("RAGService", await SafePing(ragServiceUrl));
+        }
+
+        if (!string.IsNullOrEmpty(careerServiceUrl))
+        {
+            results.Add("CareerServices", await SafePing(careerServiceUrl));
         }
 
         return Ok(new
@@ -51,6 +65,11 @@ public class KeepAliveController : ControllerBase
         try
         {
             using var client = _httpClientFactory.CreateClient();
+
+            client.Timeout = TimeSpan.FromSeconds(
+                _configuration.GetValue<double?>("ExternalServiceTimeouts:KeepAliveSeconds") ?? 300
+            );
+
             // We just want to trigger a wake up, so a simple GET is enough.
             // Even if it returns 404 or 401, the server is "hit" and wakes up.
             var response = await client.GetAsync(url);

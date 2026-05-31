@@ -17,7 +17,8 @@ namespace Nupal.Core.Infrastructure.Services
             _baseUrl = config["AgentServiceUrl"] 
                        ?? config["Agent:BaseUrl"] 
                        ?? throw new InvalidOperationException("Agent service URL is not configured. Please provide 'AgentServiceUrl' in appsettings.");
-            _httpClient.Timeout = TimeSpan.FromSeconds(300);
+            var timeoutSeconds = config.GetValue<double?>("ExternalServiceTimeouts:AgentSeconds") ?? 600;
+            _httpClient.Timeout = TimeSpan.FromSeconds(timeoutSeconds);
         }
 
         public async Task<AgentRouteResponseDto> RouteAsync(AgentRouteRequestDto request, CancellationToken ct = default)

@@ -67,7 +67,19 @@ namespace NUPAL.Core.Infrastructure
             
             services.AddHttpClient<IAiService, AiService>(client => 
             {
-                client.Timeout = TimeSpan.FromMinutes(3);
+                var timeoutSeconds = configuration.GetValue<double?>("ExternalServiceTimeouts:CareerSeconds") ?? 300;
+                client.Timeout = TimeSpan.FromSeconds(timeoutSeconds);
+                client.DefaultRequestHeaders.Add("User-Agent", "NUPAL-Proxy/1.0");
+            })
+            .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
+            {
+                ServerCertificateCustomValidationCallback = (message, cert, chain, errors) => true
+            });
+
+            services.AddHttpClient("CareerServicesProxy", client =>
+            {
+                var timeoutSeconds = configuration.GetValue<double?>("ExternalServiceTimeouts:CareerProxySeconds") ?? 300;
+                client.Timeout = TimeSpan.FromSeconds(timeoutSeconds);
                 client.DefaultRequestHeaders.Add("User-Agent", "NUPAL-Proxy/1.0");
             })
             .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
