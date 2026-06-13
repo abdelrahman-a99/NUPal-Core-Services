@@ -91,7 +91,7 @@ namespace Nupal.Core.Infrastructure.Services
 
         public async Task<string> TriggerRlJobAsync(string studentId, bool isSimulation)
         {
-            return await _precomputeService.TriggerPrecomputeAsync(studentId, isSimulation);
+            return await _precomputeService.TriggerPrecomputeAsync(studentId, isSimulation, force: true);
         }
 
         public async Task<SyncResult> SyncAllStudentsAsync(bool isSimulation)
@@ -343,6 +343,7 @@ namespace Nupal.Core.Infrastructure.Services
             reg.ProcessedAt = DateTime.UtcNow;
 
             await _registrationRepo.UpdateAsync(reg);
+            await _schedulingService.InvalidateStudentScheduleCacheAsync(reg.StudentId);
         }
 
         private static string NormalizeDay(string day)

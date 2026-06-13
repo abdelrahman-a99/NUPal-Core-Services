@@ -10,11 +10,12 @@ public class RedisCacheService : ICacheService
     private readonly IDistributedCache _cache;
     private readonly ILogger<RedisCacheService> _logger;
 
-    private static readonly JsonSerializerOptions _jsonOptions = new()
-    {
-        PropertyNameCaseInsensitive = true,
-        WriteIndented = false
-    };
+        private static readonly JsonSerializerOptions RedisJsonOptions = new()
+        {
+            PropertyNameCaseInsensitive = true,
+            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+            WriteIndented = false
+        };
 
     public RedisCacheService(IDistributedCache cache, ILogger<RedisCacheService> logger)
     {
@@ -29,7 +30,7 @@ public class RedisCacheService : ICacheService
         {
             var bytes = await _cache.GetAsync(key);
             if (bytes is null) return null;
-            return JsonSerializer.Deserialize<T>(bytes, _jsonOptions);
+            return JsonSerializer.Deserialize<T>(bytes, RedisJsonOptions);
         }
         catch (Exception ex)
         {
@@ -43,7 +44,7 @@ public class RedisCacheService : ICacheService
     {
         try
         {
-            var bytes = JsonSerializer.SerializeToUtf8Bytes(value, _jsonOptions);
+            var bytes = JsonSerializer.SerializeToUtf8Bytes(value, RedisJsonOptions);
             var options = new DistributedCacheEntryOptions
             {
                 AbsoluteExpirationRelativeToNow = expiry

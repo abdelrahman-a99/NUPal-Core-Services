@@ -13,17 +13,25 @@ namespace NUPAL.Core.Infrastructure.Services
         private readonly IBlockRepository _repo;
         private readonly ILogger<SchedulingService> _logger;
         private readonly IServiceScopeFactory _scopeFactory;
+        private readonly ICacheService _redisCache;
+
+        private static readonly TimeSpan ScheduleCacheTtl = TimeSpan.FromHours(24);
 
         private readonly SemaphoreSlim _cacheLock = new(1, 1);
         private Dictionary<string, List<SchedulingBlock>> _cache = new(StringComparer.OrdinalIgnoreCase);
         private List<CourseMapping> _mappingsCache = [];
         private bool _cacheLoaded;
 
-        public SchedulingService(IBlockRepository repo, ILogger<SchedulingService> logger, IServiceScopeFactory scopeFactory)
+        public SchedulingService(
+            IBlockRepository repo,
+            ILogger<SchedulingService> logger,
+            IServiceScopeFactory scopeFactory,
+            ICacheService redisCache)
         {
             _repo = repo;
             _logger = logger;
             _scopeFactory = scopeFactory;
+            _redisCache = redisCache;
         }
         public async Task<IEnumerable<RawBlockDto>> GetBlocksAsync(string? level = null)
         {
@@ -282,12 +290,9 @@ namespace NUPAL.Core.Infrastructure.Services
             using var scope = _scopeFactory.CreateScope();
             var regRepo = scope.ServiceProvider.GetRequiredService<IRegistrationRepository>();
 
-            // Check if student already has a pending or approved registration
-            // For simplicity, we check all registrations. In a real app, we'd filter by semester.
-            var existing = await regRepo.GetAllAsync();
-            var alreadyRegistered = existing.Any(r => 
-                r.StudentId == request.StudentId && 
-                (r.Status == "Pending" || r.Status == "Approved"));
+            var existing = await regRepo.GetByStudentIdAsync(request.StudentId);
+            var alreadyRegistered = existing.Any(r =>
+                r.Status == "Pending" || r.Status == "Approved");
 
             if (alreadyRegistered)
             {
@@ -308,36 +313,56 @@ namespace NUPAL.Core.Infrastructure.Services
             };
 
             await regRepo.CreateAsync(registration);
+            await InvalidateStudentScheduleCacheAsync(request.StudentId);
+        }
+
+        public async Task<StudentScheduleDto> GetStudentScheduleAsync(string studentId)
+        {
+            var cacheKey = ScheduleCacheKey(studentId);
+            var cached = await _redisCache.GetAsync<StudentScheduleDto>(cacheKey);
+            if (cached != null)
+                return cached;
+
+            var schedule = await LoadStudentScheduleFromDbAsync(studentId);
+            await _redisCache.SetAsync(cacheKey, schedule, ScheduleCacheTtl);
+            return schedule;
         }
 
         public async Task<Registration?> GetRegistrationByStudentIdAsync(string studentId)
         {
-            using var scope = _scopeFactory.CreateScope();
-            var regRepo = scope.ServiceProvider.GetRequiredService<IRegistrationRepository>();
-
-            var all = await regRepo.GetAllAsync();
-
-            // Only surface an active (Pending or Approved) registration.
-            // Rejected registrations should not block the student from re-submitting,
-            // and should not show stale schedule data on the student's schedule page.
-            return all
-                .Where(r => r.StudentId == studentId &&
-                            (r.Status == "Pending" || r.Status == "Approved"))
-                .OrderByDescending(r => r.RegisteredAt)
-                .FirstOrDefault();
+            var schedule = await GetStudentScheduleAsync(studentId);
+            return schedule.ActiveRegistration;
         }
-
 
         public async Task<Registration?> GetLatestRegistrationByStudentIdAsync(string studentId)
         {
+            var schedule = await GetStudentScheduleAsync(studentId);
+            return schedule.LatestRegistration;
+        }
+
+        public Task InvalidateStudentScheduleCacheAsync(string studentId) =>
+            _redisCache.RemoveAsync(ScheduleCacheKey(studentId));
+
+        private static string ScheduleCacheKey(string studentId) => $"schedule:student:{studentId}";
+
+        private async Task<StudentScheduleDto> LoadStudentScheduleFromDbAsync(string studentId)
+        {
             using var scope = _scopeFactory.CreateScope();
             var regRepo = scope.ServiceProvider.GetRequiredService<IRegistrationRepository>();
+            var studentRegs = await regRepo.GetByStudentIdAsync(studentId);
 
-            var all = await regRepo.GetAllAsync();
-            return all
-                .Where(r => r.StudentId == studentId)
+            var active = studentRegs
+                .Where(r => r.Status == "Pending" || r.Status == "Approved")
                 .OrderByDescending(r => r.RegisteredAt)
                 .FirstOrDefault();
+
+            var latest = studentRegs.FirstOrDefault();
+
+            return new StudentScheduleDto
+            {
+                ActiveRegistration = active,
+                LatestRegistration = latest
+            };
         }
     }
 }
