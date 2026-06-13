@@ -20,7 +20,9 @@ namespace NUPAL.Core.Application.Interfaces
         Task<string> GetActiveSemesterAsync();
         Task InvalidateCacheAsync();
         Task RegisterScheduleAsync(RegistrationRequestDto request);
+        Task<StudentScheduleDto> GetStudentScheduleAsync(string studentId);
         Task<Nupal.Domain.Entities.Registration?> GetRegistrationByStudentIdAsync(string studentId);
         Task<Nupal.Domain.Entities.Registration?> GetLatestRegistrationByStudentIdAsync(string studentId);
+        Task InvalidateStudentScheduleCacheAsync(string studentId);
     }
 }

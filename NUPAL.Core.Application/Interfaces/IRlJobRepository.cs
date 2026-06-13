@@ -9,6 +9,8 @@ namespace NUPAL.Core.Application.Interfaces
         Task UpdateResultAsync(string jobId, string recommendationId);
         Task<RlJob?> GetByIdAsync(string id);
         Task<RlJob?> GetLatestByStudentIdAsync(string studentId);
+        Task<RlJob?> GetInProgressForStudentAsync(string studentId, bool isSimulation);
+        Task<RlJob?> TryClaimNextQueuedJobAsync();
         Task<IEnumerable<RlJob>> GetActiveJobsAsync();
         Task DeleteAsync(string id);
     }

@@ -1,5 +1,6 @@
 using NUPAL.Core.Application.DTOs;
 using NUPAL.Core.Application.Interfaces;
+using NUPAL.Core.Application.Utilities;
 using Nupal.Domain.Entities;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
@@ -15,7 +16,7 @@ namespace NUPAL.Core.Application.Services
         private readonly IPrecomputeService _precomputeService;
         private readonly ICacheService _cache;
 
-        private static readonly TimeSpan StudentTtl = TimeSpan.FromMinutes(30);
+        private static readonly TimeSpan StudentTtl = TimeSpan.FromDays(1);
 
         public StudentService(IStudentRepository repo, IPrecomputeService precomputeService, ICacheService cache)
         {
@@ -26,6 +27,8 @@ namespace NUPAL.Core.Application.Services
 
         public async Task UpsertStudentAsync(ImportStudentDto dto)
         {
+            var existing = await _repo.GetByIdAsync(dto.Account.Id);
+
             var semesters = dto.Education.Semesters?
                 .OrderBy(kv => kv.Key)
                 .Select(kv => new Semester
@@ -69,8 +72,31 @@ namespace NUPAL.Core.Application.Services
 
             await _cache.RemoveAsync($"student:id:{student.Account.Id}");
             await _cache.RemoveAsync($"student:email:{student.Account.Email}");
-            await _cache.RemoveAsync($"rl-rec:{student.Account.Id}");
-            try 
+
+            // Invalidate all RL recommendation cache variants (track × profile combinations)
+            string[] tracks   = { "general", "big_data", "media" };
+            string[] profiles = { "balanced", "fastest_graduation", "gpa_safe", "math_heavy", "programming_heavy" };
+            foreach (var track in tracks)
+                foreach (var profile in profiles)
+                    await _cache.RemoveAsync($"rl-rec:{student.Account.Id}:{track}:{profile}");
+
+            var newHash = EducationHashHelper.ComputeHash(student.Education);
+            var oldHash = existing?.Education != null
+                ? EducationHashHelper.ComputeHash(existing.Education)
+                : null;
+            var legacyOldHash = existing?.Education != null
+                ? EducationHashHelper.ComputeLegacyHash(existing.Education)
+                : null;
+
+            if (existing?.Education != null &&
+                (oldHash == newHash || legacyOldHash == newHash ||
+                 EducationHashHelper.HashMatchesStored(newHash, legacyOldHash, existing.Education)))
+            {
+                Console.WriteLine($"[DEBUG] Student {student.Account.Id} education unchanged. Skipping precompute trigger.");
+                return;
+            }
+
+            try
             {
                 await _precomputeService.TriggerPrecomputeAsync(student.Account.Id, isSimulation: false);
             }
