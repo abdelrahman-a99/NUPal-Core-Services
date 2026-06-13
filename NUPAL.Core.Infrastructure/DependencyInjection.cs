@@ -98,6 +98,7 @@ namespace NUPAL.Core.Infrastructure
             services.AddScoped<ISystemSettingsRepository, SystemSettingsRepository>();
 
             services.AddHostedService<PrecomputeBackgroundWorker>();
+            services.AddHostedService<RlPrecomputeQueueWorker>();
 
             services.AddSingleton<IBlockRepository, BlockRepository>();
             services.AddScoped<IRegistrationRepository, RegistrationRepository>();

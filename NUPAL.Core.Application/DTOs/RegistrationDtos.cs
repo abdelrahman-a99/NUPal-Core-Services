@@ -18,4 +18,10 @@ namespace NUPAL.Core.Application.DTOs
         public string Status { get; set; } = "Approved"; // Approved or Rejected
         public string? AdminNote { get; set; }
     }
+
+    public class StudentScheduleDto
+    {
+        public Registration? ActiveRegistration { get; set; }
+        public Registration? LatestRegistration { get; set; }
+    }
 }

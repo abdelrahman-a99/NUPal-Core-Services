@@ -210,6 +210,25 @@ namespace NUPAL.Core.Api.Controllers
             }
         }
 
+        [HttpGet("my-schedule")]
+        [Authorize]
+        public async Task<IActionResult> GetMySchedule()
+        {
+            try
+            {
+                var studentId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+                if (string.IsNullOrEmpty(studentId)) return Unauthorized();
+
+                var schedule = await _schedulingService.GetStudentScheduleAsync(studentId);
+                return Ok(schedule);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error fetching student schedule");
+                return StatusCode(500, new { message = "Error fetching schedule" });
+            }
+        }
+
         [HttpGet("latest-registration")]
         [Authorize]
         public async Task<IActionResult> GetLatestRegistration()

@@ -8,6 +8,7 @@ namespace NUPAL.Core.Application.Interfaces
         Task<object> GetJobStatusAsync();
         Task<RlRecommendation?> GetRecommendationAsync(string id);
         Task<SyncResult> SyncAllStudentsAsync(bool isSimulation = false);
+        Task ProcessQueuedJobAsync(string jobId, CancellationToken cancellationToken = default);
     }
 
     public class SyncResult

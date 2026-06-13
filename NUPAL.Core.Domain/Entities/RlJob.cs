@@ -19,6 +19,8 @@ namespace Nupal.Domain.Entities
 
         public string EducationHash { get; set; } // To detect changes
         public bool IsSimulation { get; set; } // Track if job was a simulation run
+        public int? Episodes { get; set; }
+        public string? TargetTrack { get; set; }
         public string? Error { get; set; }
         
         public string? ResultRecommendationId { get; set; } // Reference to RlRecommendation ID
