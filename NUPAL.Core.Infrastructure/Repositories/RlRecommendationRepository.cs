@@ -2,6 +2,7 @@ using MongoDB.Driver;
 using MongoDB.Bson;
 using Nupal.Domain.Entities;
 using NUPAL.Core.Application.Interfaces;
+using NUPAL.Core.Application.Utilities;
 
 namespace Nupal.Core.Infrastructure.Repositories
 {
@@ -56,6 +57,37 @@ namespace Nupal.Core.Infrastructure.Repositories
             return await _col.Find(filter)
                 .SortByDescending(x => x.CreatedAt)
                 .FirstOrDefaultAsync();
+        }
+
+        public async Task<RlRecommendation?> GetByStudentAndEducationHashAsync(string studentId, string educationHash)
+        {
+            return await _col.Find(x => x.StudentId == studentId && x.EducationHash == educationHash)
+                .SortByDescending(x => x.CreatedAt)
+                .FirstOrDefaultAsync();
+        }
+
+        public async Task<RlRecommendation?> GetValidRecommendationForStudentAsync(string studentId, string currentHash, Education education)
+        {
+            var byCurrentHash = await GetByStudentAndEducationHashAsync(studentId, currentHash);
+            if (byCurrentHash != null)
+                return byCurrentHash;
+
+            var legacyHash = EducationHashHelper.ComputeLegacyHash(education);
+            if (legacyHash != currentHash)
+            {
+                var byLegacyHash = await GetByStudentAndEducationHashAsync(studentId, legacyHash);
+                if (byLegacyHash != null)
+                    return byLegacyHash;
+            }
+
+            var latest = await GetLatestByStudentIdAsync(studentId);
+            if (latest != null &&
+                EducationHashHelper.HashMatchesStored(currentHash, latest.EducationHash, education))
+            {
+                return latest;
+            }
+
+            return null;
         }
     }
 }
