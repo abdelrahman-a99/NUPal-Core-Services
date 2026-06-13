@@ -13,25 +13,53 @@ namespace NUPAL.Core.Application.Services
         private readonly IStudentRepository _studentRepo;
         private readonly IRlRecommendationRepository _rlRepo;
         private readonly IAgentClient _agent;
+        private readonly IAgentPipelineTraceRepository _traceRepo;
 
         public ChatService(
             IChatConversationRepository convoRepo,
             IChatMessageRepository msgRepo,
             IStudentRepository studentRepo,
             IRlRecommendationRepository rlRepo,
-            IAgentClient agent)
+            IAgentClient agent,
+            IAgentPipelineTraceRepository traceRepo)
         {
             _convoRepo = convoRepo;
             _msgRepo = msgRepo;
             _studentRepo = studentRepo;
             _rlRepo = rlRepo;
             _agent = agent;
+            _traceRepo = traceRepo;
         }
 
         private static readonly JsonSerializerOptions MetadataJsonOptions = new(JsonSerializerDefaults.Web)
         {
             DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
         };
+
+        private static string ToJsonForTrace(object? value)
+        {
+            return JsonSerializer.Serialize(value, MetadataJsonOptions);
+        }
+
+        private static AgentPipelineTraceEvent TraceEvent(
+            int order,
+            string stage,
+            object? data = null,
+            string status = "ok",
+            double? durationMs = null,
+            string? error = null)
+        {
+            return new AgentPipelineTraceEvent
+            {
+                Order = order,
+                Stage = stage,
+                Status = status,
+                At = DateTime.UtcNow,
+                DurationMs = durationMs,
+                DataJson = data == null ? null : ToJsonForTrace(data),
+                Error = error
+            };
+        }
 
         private static JsonElement? GetRouterElement(AgentRouteResponseDto agentResp)
         {
@@ -355,15 +383,68 @@ namespace NUPAL.Core.Application.Services
             }
 
             // 5) Route via agent
+            var backendTraceId = Guid.NewGuid().ToString("N");
+            var agentStartedAt = DateTime.UtcNow;
+            var agentStopwatch = System.Diagnostics.Stopwatch.StartNew();
+
             var agentReq = new AgentRouteRequestDto
             {
                 StudentId = studentId,
+                ConversationId = convoId,
+                MessageId = backendTraceId,
                 Message = request.Message.Trim(),
                 History = agentHistory,
                 RlRecommendation = rlSnap
             };
 
+            var traceEvents = new List<AgentPipelineTraceEvent>
+            {
+                TraceEvent(1, "backend.received_message", new
+                {
+                    student_id = studentId,
+                    conversation_id = convoId,
+                    request_conversation_id = request.ConversationId,
+                    message = request.Message.Trim()
+                }),
+                TraceEvent(2, "backend.loaded_history", new
+                {
+                    conversation_id = convoId,
+                    history_count = history.Count,
+                    agent_history_count = agentHistory.Count,
+                    history = agentHistory
+                }),
+                TraceEvent(3, "backend.loaded_rl_snapshot", new
+                {
+                    has_snapshot = rlSnap != null,
+                    recommendation_id = rlSnap?.RecommendationId,
+                    target_track = rlSnap?.TargetTrack,
+                    objective_profile = rlSnap?.ObjectiveProfile,
+                    term_index = rlSnap?.TermIndex,
+                    courses = rlSnap?.Courses,
+                    available_tracks = rlSnap?.AvailableTracks,
+                    available_profiles = rlSnap?.AvailableProfiles,
+                    metrics = rlSnap?.Metrics,
+                    model_version = rlSnap?.ModelVersion,
+                    policy_version = rlSnap?.PolicyVersion
+                }),
+                TraceEvent(4, "backend.agent_request", agentReq)
+            };
+
             var agentResp = await _agent.RouteAsync(agentReq, ct);
+
+            agentStopwatch.Stop();
+
+            traceEvents.Add(TraceEvent(5, "backend.agent_response", new
+            {
+                trace_id = agentResp.TraceId,
+                intent = agentResp.Intent,
+                route = agentResp.Route,
+                user_kind = agentResp.UserKind,
+                status = agentResp.Status,
+                router = agentResp.Router,
+                results_count = agentResp.Results.Count,
+                results = agentResp.Results
+            }, durationMs: agentStopwatch.Elapsed.TotalMilliseconds));
 
             // 6) Persist the user message with the resolved kind and route metadata.
             // Prefer the new agent route/user_kind fields, but fall back to legacy intent/reply kinds
@@ -378,7 +459,7 @@ namespace NUPAL.Core.Application.Services
             var routeReason = ExtractRouterString(agentResp, "reason");
             var userMetadataJson = SerializeUserMetadata(agentResp);
 
-            await _msgRepo.CreateAsync(new ChatMessage
+            var userChatMessage = new ChatMessage
             {
                 ConversationId = convoId,
                 StudentId = studentId,
@@ -394,17 +475,21 @@ namespace NUPAL.Core.Application.Services
                 RouteConfidence = routeConfidence,
                 RouteReason = routeReason,
                 CreatedAt = DateTime.UtcNow
-            });
+            };
+
+            await _msgRepo.CreateAsync(userChatMessage);
 
             Console.WriteLine($"[ChatService] Agent route: TraceId={agentResp.TraceId ?? "n/a"}, Route={agentResp.Route ?? "n/a"}, Intent={agentResp.Intent}, Status={agentResp.Status}, Confidence={routeConfidence?.ToString("0.###") ?? "n/a"}");
 
             // 7) Persist assistant replies with both result-level metadata and the shared route metadata.
             var replies = new List<ChatReplyDto>();
+            var assistantMessageIds = new List<string>();
+
             foreach (var r in agentResp.Results)
             {
                 var metadataJson = SerializeAssistantMetadata(agentResp, r.Metadata);
 
-                await _msgRepo.CreateAsync(new ChatMessage
+                var assistantChatMessage = new ChatMessage
                 {
                     ConversationId = convoId,
                     StudentId = studentId,
@@ -420,7 +505,10 @@ namespace NUPAL.Core.Application.Services
                     RouteConfidence = routeConfidence,
                     RouteReason = routeReason,
                     CreatedAt = DateTime.UtcNow
-                });
+                };
+
+                await _msgRepo.CreateAsync(assistantChatMessage);
+                assistantMessageIds.Add(assistantChatMessage.Id.ToString());
 
                 replies.Add(new ChatReplyDto
                 {
@@ -432,6 +520,37 @@ namespace NUPAL.Core.Application.Services
                     AgentStatus = agentResp.Status
                 });
             }
+
+            traceEvents.Add(TraceEvent(6, "backend.persisted_chat_messages", new
+            {
+                user_message_id = userChatMessage.Id.ToString(),
+                assistant_message_ids = assistantMessageIds,
+                assistant_count = assistantMessageIds.Count
+            }));
+
+            await _traceRepo.CreateAsync(new AgentPipelineTrace
+            {
+                TraceId = backendTraceId,
+                AgentTraceId = agentResp.TraceId,
+                StudentId = studentId,
+                ConversationId = convoId,
+                UserMessage = request.Message.Trim(),
+                UserMessageId = userChatMessage.Id.ToString(),
+                AssistantMessageIds = assistantMessageIds,
+                Status = "completed",
+                AgentRoute = string.IsNullOrWhiteSpace(agentResp.Route) ? null : agentResp.Route,
+                AgentIntent = agentResp.Intent,
+                AgentUserKind = string.IsNullOrWhiteSpace(agentResp.UserKind) ? userKind : agentResp.UserKind,
+                AgentStatus = agentResp.Status,
+                RouteConfidence = routeConfidence,
+                RouteReason = routeReason,
+                TotalDurationMs = (DateTime.UtcNow - agentStartedAt).TotalMilliseconds,
+                AgentRequestJson = ToJsonForTrace(agentReq),
+                AgentResponseJson = ToJsonForTrace(agentResp),
+                Events = traceEvents,
+                CreatedAt = agentStartedAt,
+                CompletedAt = DateTime.UtcNow
+            });
 
             await _convoRepo.TouchAsync(convoId);
 

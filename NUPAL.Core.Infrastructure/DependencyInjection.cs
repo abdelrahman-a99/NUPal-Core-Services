@@ -56,6 +56,7 @@ namespace NUPAL.Core.Infrastructure
 
             services.AddScoped<IChatConversationRepository, ChatConversationRepository>();
             services.AddScoped<IChatMessageRepository, ChatMessageRepository>();
+            services.AddScoped<IAgentPipelineTraceRepository, AgentPipelineTraceRepository>();
             services.AddHttpClient<IAgentClient, AgentClient>();
 
             services.AddScoped<IRlJobRepository, RlJobRepository>();

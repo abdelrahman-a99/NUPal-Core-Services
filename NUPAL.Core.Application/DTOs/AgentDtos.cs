@@ -16,20 +16,26 @@ namespace NUPAL.Core.Application.DTOs
         public string Content { get; set; } = string.Empty;
     }
 
-    public class AgentRouteRequestDto
-    {
-        [JsonPropertyName("student_id")]
-        public string StudentId { get; set; } = string.Empty;
+public class AgentRouteRequestDto
+{
+    [JsonPropertyName("student_id")]
+    public string StudentId { get; set; } = string.Empty;
 
-        [JsonPropertyName("message")]
-        public string Message { get; set; } = string.Empty;
+    [JsonPropertyName("conversation_id")]
+    public string? ConversationId { get; set; }
 
-        [JsonPropertyName("history")]
-        public List<AgentHistoryMessageDto> History { get; set; } = new();
+    [JsonPropertyName("message_id")]
+    public string? MessageId { get; set; }
 
-        [JsonPropertyName("rl_recommendation")]
-        public AgentRlRecommendationDto? RlRecommendation { get; set; }
-    }
+    [JsonPropertyName("message")]
+    public string Message { get; set; } = string.Empty;
+
+    [JsonPropertyName("history")]
+    public List<AgentHistoryMessageDto> History { get; set; } = new();
+
+    [JsonPropertyName("rl_recommendation")]
+    public AgentRlRecommendationDto? RlRecommendation { get; set; }
+}
 
     public class AgentRlRecommendationDto
     {
